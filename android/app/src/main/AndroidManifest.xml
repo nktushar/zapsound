@@ -2,6 +2,8 @@
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
@@ -28,17 +30,25 @@
             </intent-filter>
         </activity>
 
-        <!-- Detects charger plug/unplug even when app is fully closed -->
+        <!-- Restarts ZapForegroundService after reboot. ACTION_POWER_CONNECTED/
+             DISCONNECTED are NOT exempt from Android's implicit-broadcast
+             restrictions, so they are handled via a dynamically-registered
+             receiver inside ZapForegroundService instead. -->
         <receiver
-            android:name=".ZapReceiver"
+            android:name="com.zapsound.app.ZapReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="android.intent.action.ACTION_POWER_CONNECTED"/>
-                <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED"/>
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
             </intent-filter>
         </receiver>
+
+        <!-- Keeps the process alive so ZapReceiver reliably receives charger broadcasts -->
+        <service
+            android:name="com.zapsound.app.ZapForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
 
         <meta-data android:name="flutterEmbedding" android:value="2"/>
     </application>
