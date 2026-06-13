@@ -4,6 +4,7 @@ import '../services/preferences_service.dart';
 import '../services/audio_service.dart';
 import '../theme/app_theme.dart';
 import 'premium_screen.dart';
+import 'record_sound_screen.dart';
 
 class SoundPickerScreen extends StatefulWidget {
   final bool isPlugIn;
@@ -27,7 +28,16 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
       _category == 'All' ? ZapSoundLibrary.all : ZapSoundLibrary.all.where((s) => s.category == _category).toList();
 
   Future<void> _preview(SoundModel s) async {
-    if (s.assetPath.isEmpty) return; // 'custom' has no bundled asset to preview here
+    if (s.id == 'custom') {
+      final path = widget.isPlugIn ? await PrefsService.getCustomIn() : await PrefsService.getCustomOut();
+      if (path == null) return;
+      setState(() => _playingId = s.id);
+      await AudioService.playFile(path);
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) setState(() => _playingId = null);
+      return;
+    }
+    if (s.assetPath.isEmpty) return;
     setState(() => _playingId = s.id);
     await AudioService.playAsset(s.assetPath);
     await Future.delayed(const Duration(seconds: 2));
@@ -37,6 +47,14 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
   Future<void> _select(SoundModel s) async {
     if (s.isPremium && !widget.isPremium) {
       Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
+      return;
+    }
+    if (s.id == 'custom') {
+      final saved = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: widget.isPlugIn)),
+      );
+      if (saved == true && mounted) Navigator.pop(context);
       return;
     }
     setState(() => _selectedId = s.id);
@@ -159,6 +177,15 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                                 size: 20,
                               ),
                             ),
+                          )
+                        else if (s.id == 'custom' && !locked)
+                          Container(
+                            width: 38, height: 38,
+                            decoration: BoxDecoration(
+                              color: ZapColors.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
+                            ),
+                            child: const Icon(Icons.mic_rounded, color: ZapColors.primary, size: 20),
                           ),
 
                         if (locked) ...[
