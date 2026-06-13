@@ -27,7 +27,7 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
       _category == 'All' ? ZapSoundLibrary.all : ZapSoundLibrary.all.where((s) => s.category == _category).toList();
 
   Future<void> _preview(SoundModel s) async {
-    if (s.isPremium && !widget.isPremium) return;
+    if (s.assetPath.isEmpty) return; // 'custom' has no bundled asset to preview here
     setState(() => _playingId = s.id);
     await AudioService.playAsset(s.assetPath);
     await Future.delayed(const Duration(seconds: 2));
@@ -50,7 +50,7 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isPlugIn ? '🔌 Plug-in Sound' : '⚡ Unplug Sound',
+        title: Text(widget.isPlugIn ? 'Plug-in Sound' : 'Unplug Sound',
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
       ),
       body: Column(children: [
@@ -142,41 +142,44 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                       ])),
 
                       // Action button
-                      if (locked)
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: ZapColors.gold.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
+                      Row(mainAxisSize: MainAxisSize.min, children: [
+                        if (s.assetPath.isNotEmpty)
+                          GestureDetector(
+                            onTap: () => _preview(s),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: 38, height: 38,
+                              decoration: BoxDecoration(
+                                color: playing ? ZapColors.primary : ZapColors.primary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
+                              ),
+                              child: Icon(
+                                playing ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                                color: playing ? Colors.white : ZapColors.primary,
+                                size: 20,
+                              ),
+                            ),
                           ),
-                          child: const Icon(Icons.lock_rounded, size: 16, color: ZapColors.gold),
-                        )
-                      else
-                        GestureDetector(
-                          onTap: () => _preview(s),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            width: 38, height: 38,
+
+                        if (locked) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: playing ? ZapColors.primary : ZapColors.primary.withOpacity(0.1),
+                              color: ZapColors.gold.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
                             ),
-                            child: Icon(
-                              playing ? Icons.stop_rounded : Icons.play_arrow_rounded,
-                              color: playing ? Colors.white : ZapColors.primary,
-                              size: 20,
-                            ),
+                            child: const Icon(Icons.lock_rounded, size: 16, color: ZapColors.gold),
                           ),
-                        ),
-
-                      if (!locked) ...[
-                        const SizedBox(width: 10),
-                        AnimatedOpacity(
-                          duration: const Duration(milliseconds: 200),
-                          opacity: selected ? 1.0 : 0.0,
-                          child: const Icon(Icons.check_circle_rounded, color: ZapColors.primary, size: 22),
-                        ),
-                      ],
+                        ] else ...[
+                          const SizedBox(width: 10),
+                          AnimatedOpacity(
+                            duration: const Duration(milliseconds: 200),
+                            opacity: selected ? 1.0 : 0.0,
+                            child: const Icon(Icons.check_circle_rounded, color: ZapColors.primary, size: 22),
+                          ),
+                        ],
+                      ]),
                     ]),
                   ),
                 ),
