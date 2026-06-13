@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../main.dart';
 import '../services/preferences_service.dart';
 import '../services/purchase_service.dart';
 import '../theme/app_theme.dart';
@@ -38,8 +40,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Dark mode', style: TextStyle(fontSize: ZapTheme.textMd)),
             value: _isDark,
             activeColor: ZapColors.primary,
-            onChanged: (v) async { setState(() => _isDark = v); await PrefsService.setDarkMode(v); },
+            onChanged: (v) async {
+              setState(() => _isDark = v);
+              await PrefsService.setDarkMode(v);
+              ZapSoundApp.of(context)?.setDark(v);
+            },
           ),
+        ]),
+
+        const SizedBox(height: ZapTheme.space4),
+
+        _Section('Background & Reliability', [
+          _Tile(Icons.battery_charging_full_rounded, 'Allow background activity',
+              'Required so charger sounds play when ZapSound is closed', () async {
+            const channel = MethodChannel('com.zapsound.app/charger');
+            await channel.invokeMethod('requestBatteryOptimizationExemption');
+          }),
+          _Tile(Icons.smartphone_rounded, 'Some phones need extra setup',
+              'Tap for Xiaomi / Oppo / Vivo / Samsung instructions', () {
+            showDialog(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: const Text('Extra setup for some phones'),
+                content: const Text(
+                  'On Xiaomi (MIUI), Oppo (ColorOS), Vivo (FuntouchOS) and some '
+                  'Samsung phones, Android\'s standard battery settings are not '
+                  'enough. Also open:\n\n'
+                  '• Settings → Apps → ZapSound → Battery → "No restrictions" / '
+                  '"Allow background activity"\n'
+                  '• Settings → Apps → Autostart (or "Auto-launch") → enable ZapSound\n\n'
+                  'Without this, the OS may stop ZapSound from detecting the '
+                  'charger while the app is closed.',
+                ),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Got it')),
+                ],
+              ),
+            );
+          }),
         ]),
 
         const SizedBox(height: ZapTheme.space4),
@@ -49,7 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             await PurchaseService.restore();
             final ok = await PrefsService.isPremium();
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? '✅ Pro restored!' : 'No purchase found.')));
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Pro restored!' : 'No purchase found.')));
               _load();
             }
           }),
@@ -78,7 +116,7 @@ class _PremiumBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
       ),
       child: const Row(children: [
-        Text('⚡', style: TextStyle(fontSize: 24)),
+        Icon(Icons.bolt_rounded, color: Colors.white, size: 24),
         SizedBox(width: 12),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('ZapSound Pro Active', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: ZapTheme.textMd)),
