@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../models/sound_model.dart';
 import '../services/preferences_service.dart';
 import '../services/audio_service.dart';
@@ -20,12 +21,28 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
   late String _selectedId;
   String _category = 'All';
   String? _playingId;
+  bool _customRecorded = false;
 
   @override
-  void initState() { super.initState(); _selectedId = widget.currentId; }
+  void initState() {
+    super.initState();
+    _selectedId = widget.currentId;
+    _loadCustomRecorded();
+  }
 
-  List<SoundModel> get _filtered =>
-      _category == 'All' ? ZapSoundLibrary.all : ZapSoundLibrary.all.where((s) => s.category == _category).toList();
+  Future<void> _loadCustomRecorded() async {
+    final path = widget.isPlugIn ? await PrefsService.getCustomIn() : await PrefsService.getCustomOut();
+    if (mounted) setState(() => _customRecorded = path != null);
+  }
+
+  List<SoundModel> get _filtered {
+    final base = _category == 'All'
+        ? ZapSoundLibrary.all
+        : ZapSoundLibrary.all.where((s) => s.category == _category).toList();
+    final sorted = [...base];
+    sorted.sort((a, b) => a.id == 'custom' ? -1 : (b.id == 'custom' ? 1 : 0));
+    return sorted;
+  }
 
   Future<void> _preview(SoundModel s) async {
     if (s.id == 'custom') {
@@ -50,17 +67,28 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
       return;
     }
     if (s.id == 'custom') {
-      final saved = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: widget.isPlugIn)),
-      );
-      if (saved == true && mounted) Navigator.pop(context);
-      return;
+      if (!_customRecorded) {
+        final saved = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: widget.isPlugIn)),
+        );
+        if (saved == true && mounted) Navigator.pop(context);
+        return;
+      }
+      // Already recorded: behave like any other row — select and close.
     }
     setState(() => _selectedId = s.id);
     if (widget.isPlugIn) await PrefsService.setPlugIn(s.id);
     else await PrefsService.setPlugOut(s.id);
     if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _reRecord() async {
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: widget.isPlugIn)),
+    );
+    if (saved == true) await _loadCustomRecorded();
   }
 
   @override
@@ -84,19 +112,30 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                 padding: const EdgeInsets.only(right: 8),
                 child: GestureDetector(
                   onTap: () => setState(() => _category = cat),
-                  child: AnimatedContainer(
+                  child: AnimatedScale(
                     duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: sel ? ZapColors.primary : (isDark ? ZapColors.surfaceDark : Colors.white),
-                      borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
-                      border: Border.all(color: sel ? ZapColors.primary : ZapColors.primary.withOpacity(0.2)),
-                    ),
-                    child: Text(cat,
-                      style: TextStyle(
-                        fontSize: ZapTheme.textSm,
-                        fontWeight: FontWeight.w600,
-                        color: sel ? Colors.white : ZapColors.textSecondary,
+                    curve: Curves.easeOutBack,
+                    scale: sel ? 1.0 : 0.94,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        gradient: sel
+                            ? const LinearGradient(colors: [Color(0xFF4A42CC), ZapColors.primary])
+                            : null,
+                        color: sel ? null : (isDark ? ZapColors.surfaceDark : Colors.white),
+                        borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
+                        border: Border.all(color: sel ? ZapColors.primary : ZapColors.primary.withValues(alpha: 0.2)),
+                        boxShadow: sel
+                            ? [BoxShadow(color: ZapColors.primary.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 3))]
+                            : null,
+                      ),
+                      child: Text(cat,
+                        style: TextStyle(
+                          fontSize: ZapTheme.textSm,
+                          fontWeight: FontWeight.w600,
+                          color: sel ? Colors.white : ZapColors.textSecondary,
+                        ),
                       ),
                     ),
                   ),
@@ -124,12 +163,16 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.all(ZapTheme.space3),
                     decoration: BoxDecoration(
-                      color: selected
-                          ? ZapColors.primary.withOpacity(0.12)
-                          : (isDark ? ZapColors.surfaceDark : Colors.white),
+                      gradient: selected
+                          ? LinearGradient(
+                              colors: [ZapColors.primary.withValues(alpha: 0.18), ZapColors.primary.withValues(alpha: 0.08)],
+                              begin: Alignment.topLeft, end: Alignment.bottomRight,
+                            )
+                          : null,
+                      color: selected ? null : (isDark ? ZapColors.surfaceDark : Colors.white),
                       borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
                       border: Border.all(
-                        color: selected ? ZapColors.primary : ZapColors.primary.withOpacity(0.1),
+                        color: selected ? ZapColors.primary : ZapColors.primary.withValues(alpha: 0.1),
                         width: selected ? 1.5 : 0.5,
                       ),
                     ),
@@ -140,23 +183,52 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                         decoration: BoxDecoration(
                           color: locked
                               ? (isDark ? ZapColors.surfaceDark2 : Colors.grey.shade100)
-                              : ZapColors.primary.withOpacity(0.1),
+                              : ZapColors.primary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
                         ),
-                        child: Center(child: Text(s.emoji, style: const TextStyle(fontSize: 22))),
+                        child: Center(
+                          child: Opacity(
+                            opacity: (s.id == 'custom' && !locked && !_customRecorded) ? 0.35 : 1.0,
+                            child: Text(s.emoji, style: const TextStyle(fontSize: 22)),
+                          ),
+                        ),
                       ),
                       const SizedBox(width: ZapTheme.space3),
 
                       // Name + category
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Row(children: [
-                          Text(s.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: ZapTheme.textMd)),
+                          Flexible(
+                            child: Text(
+                              s.name,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: ZapTheme.textMd),
+                            ),
+                          ),
                           if (s.isPremium) ...[
                             const SizedBox(width: 5),
                             const Icon(Icons.bolt_rounded, size: 13, color: ZapColors.gold),
                           ],
+                          if (s.id == 'custom' && !locked && _customRecorded) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: ZapColors.success.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
+                              ),
+                              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                                Icon(Icons.check_circle_rounded, size: 11, color: ZapColors.success),
+                                SizedBox(width: 3),
+                                Text('Recorded', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: ZapColors.success)),
+                              ]),
+                            ),
+                          ],
                         ]),
-                        Text(s.category, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
+                        Text(
+                          s.id == 'custom' && !locked && !_customRecorded ? 'Tap to record' : s.category,
+                          style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary),
+                        ),
                       ])),
 
                       // Action button
@@ -168,7 +240,7 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                               duration: const Duration(milliseconds: 200),
                               width: 38, height: 38,
                               decoration: BoxDecoration(
-                                color: playing ? ZapColors.primary : ZapColors.primary.withOpacity(0.1),
+                                color: playing ? ZapColors.primary : ZapColors.primary.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
                               ),
                               child: Icon(
@@ -178,14 +250,45 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                               ),
                             ),
                           )
+                        else if (s.id == 'custom' && !locked && _customRecorded)
+                          Row(mainAxisSize: MainAxisSize.min, children: [
+                            GestureDetector(
+                              onTap: () => _preview(s),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: 38, height: 38,
+                                decoration: BoxDecoration(
+                                  color: playing ? ZapColors.primary : ZapColors.primary.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
+                                ),
+                                child: Icon(
+                                  playing ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                                  color: playing ? Colors.white : ZapColors.primary,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: _reRecord,
+                              child: Container(
+                                width: 32, height: 32,
+                                decoration: BoxDecoration(
+                                  color: ZapColors.gold.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
+                                ),
+                                child: const Icon(Icons.fiber_manual_record, color: ZapColors.gold, size: 16),
+                              ),
+                            ),
+                          ])
                         else if (s.id == 'custom' && !locked)
                           Container(
                             width: 38, height: 38,
                             decoration: BoxDecoration(
-                              color: ZapColors.primary.withOpacity(0.1),
+                              color: (isDark ? ZapColors.surfaceDark2 : Colors.grey.shade100),
                               borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
                             ),
-                            child: const Icon(Icons.mic_rounded, color: ZapColors.primary, size: 20),
+                            child: Icon(Icons.mic_rounded, color: ZapColors.primary.withValues(alpha: 0.4), size: 20),
                           ),
 
                         if (locked) ...[
@@ -193,7 +296,7 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: ZapColors.gold.withOpacity(0.1),
+                              color: ZapColors.gold.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
                             ),
                             child: const Icon(Icons.lock_rounded, size: 16, color: ZapColors.gold),
@@ -210,7 +313,9 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                     ]),
                   ),
                 ),
-              );
+              ).animate(delay: Duration(milliseconds: i * 40))
+                  .fadeIn(duration: 250.ms)
+                  .slideY(begin: 0.08, duration: 250.ms, curve: Curves.easeOut);
             },
           ),
         ),

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:in_app_purchase/in_app_purchase.dart';
 import '../services/purchase_service.dart';
-import '../services/preferences_service.dart';
 import '../theme/app_theme.dart';
 class PremiumScreen extends StatefulWidget {
   const PremiumScreen({super.key});
@@ -31,22 +29,20 @@ Future<void> _buy() async {
   }
 Future<void> _restore() async {
     setState(() => _restoring = true);
-    await PurchaseService.restore();
-    await Future.delayed(const Duration(seconds: 2));
-    final ok = await PrefsService.isPremium();
+    final ok = await PurchaseService.restoreAndCheck();
     if (mounted) {
       setState(() => _restoring = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ok ? '✅ Premium restored!' : 'No purchase found.')));
+        SnackBar(content: Text(ok ? 'Premium restored!' : 'No purchase found.')));
       if (ok) Navigator.pop(context);
     }
   }
 static const _features = [
-    ('⚡', '50+ premium sounds',        'Funny, gaming, sci-fi packs'),
-    ('🎙️','Record your own sounds',     'Your voice, any sound you like'),
-    ('🚫', 'Zero ads forever',          'Clean experience, always'),
-    ('🎁', 'All future sound packs free','Every new release included'),
-    ('♾️', 'Lifetime access',           'Pay once, yours forever'),
+    (Icons.bolt_rounded, '50+ premium sounds',        'Funny, gaming, sci-fi packs'),
+    (Icons.mic_rounded, 'Record your own sounds',     'Your voice, any sound you like'),
+    (Icons.block_rounded, 'Zero ads forever',          'Clean experience, always'),
+    (Icons.card_giftcard_rounded, 'All future sound packs free','Every new release included'),
+    (Icons.all_inclusive_rounded, 'Lifetime access',           'Pay once, yours forever'),
   ];
 @override
   Widget build(BuildContext context) {
@@ -66,7 +62,7 @@ static const _features = [
                 borderRadius: BorderRadius.circular(ZapTheme.radiusXl),
               ),
               child: Column(children: [
-                const Text('⚡', style: TextStyle(fontSize: 52))
+                const Icon(Icons.bolt_rounded, color: Colors.white, size: 52)
                     .animate().scale(duration: 600.ms, curve: Curves.elasticOut),
                 const SizedBox(height: 12),
                 const Text('ZapSound Pro',
@@ -87,7 +83,7 @@ Padding(
               padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
               child: Column(
                 children: _features.asMap().entries.map((e) =>
-                  _FeatureRow(emoji: e.value.$1, title: e.value.$2, subtitle: e.value.$3, delay: e.key * 70)
+                  _FeatureRow(icon: e.value.$1, title: e.value.$2, subtitle: e.value.$3, delay: e.key * 70)
                 ).toList(),
               ),
             ),
@@ -141,9 +137,10 @@ Padding(
   }
 }
 class _FeatureRow extends StatelessWidget {
-  final String emoji, title, subtitle;
+  final IconData icon;
+  final String title, subtitle;
   final int delay;
-  const _FeatureRow({required this.emoji, required this.title, required this.subtitle, required this.delay});
+  const _FeatureRow({required this.icon, required this.title, required this.subtitle, required this.delay});
 
   @override
   Widget build(BuildContext context) {
@@ -156,7 +153,7 @@ class _FeatureRow extends StatelessWidget {
             color: ZapColors.primary.withOpacity(0.1),
             borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
           ),
-          child: Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
+          child: Center(child: Icon(icon, color: ZapColors.primary, size: 22)),
         ),
         const SizedBox(width: ZapTheme.space3),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

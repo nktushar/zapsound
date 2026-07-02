@@ -42,7 +42,6 @@ class AppTheme {
     useMaterial3: true,
     brightness: Brightness.dark,
     colorScheme: ColorScheme.fromSeed(seedColor: ZapColors.primary, brightness: Brightness.dark).copyWith(
-      background: ZapColors.bgDark,
       surface: ZapColors.surfaceDark,
       primary: ZapColors.primary,
     ),

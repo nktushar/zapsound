@@ -19,6 +19,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String _plugOutId = 's2';
   bool   _isPremium = false;
   bool   _isCharging = false;
+  bool   _isEnabled = true;
   late AnimationController _glowCtrl;
 
   @override
@@ -32,7 +33,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final inId  = await PrefsService.getPlugIn();
     final outId = await PrefsService.getPlugOut();
     final prem  = await PrefsService.isPremium();
-    if (mounted) setState(() { _plugInId = inId; _plugOutId = outId; _isPremium = prem; });
+    final enabled = await PrefsService.isEnabled();
+    if (mounted) setState(() { _plugInId = inId; _plugOutId = outId; _isPremium = prem; _isEnabled = enabled; });
   }
 
   SoundModel _sound(String id) =>
@@ -42,6 +44,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     setState(() => _isCharging = !_isCharging);
     if (_isCharging) await AudioService.onPlugIn();
     else await AudioService.onPlugOut();
+  }
+
+  void _toggleEnabled(bool v) async {
+    setState(() => _isEnabled = v);
+    await PrefsService.setEnabled(v);
   }
 
   void _goToPicker(bool isPlugIn) {
@@ -66,7 +73,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Scaffold(
       appBar: AppBar(
         title: Row(mainAxisSize: MainAxisSize.min, children: [
-          const Text('⚡', style: TextStyle(fontSize: 18)),
+          const Icon(Icons.bolt_rounded, color: ZapColors.primary, size: 18),
           const SizedBox(width: 6),
           Text('ZapSound',
             style: TextStyle(
@@ -106,6 +113,41 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       body: SafeArea(child: Column(children: [
         const SizedBox(height: 20),
 
+        // Master enable/disable toggle
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space4, vertical: ZapTheme.space3),
+            decoration: BoxDecoration(
+              color: isDark ? ZapColors.surfaceDark : Colors.white,
+              borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
+              border: Border.all(color: ZapColors.primary.withOpacity(0.15)),
+            ),
+            child: Row(children: [
+              Icon(
+                _isEnabled ? Icons.bolt_rounded : Icons.bolt_outlined,
+                color: _isEnabled ? ZapColors.primary : ZapColors.textSecondary,
+                size: 20,
+              ),
+              const SizedBox(width: ZapTheme.space3),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('ZapSound', style: TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w700)),
+                Text(
+                  _isEnabled ? 'Active — charger sounds will play' : 'Paused — charger sounds are off',
+                  style: TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary),
+                ),
+              ])),
+              Switch(
+                value: _isEnabled,
+                activeColor: ZapColors.primary,
+                onChanged: _toggleEnabled,
+              ),
+            ]),
+          ),
+        ).animate().fadeIn(duration: 300.ms),
+
+        const SizedBox(height: 16),
+
         // Central zap button
         GestureDetector(
           onTap: _testCharge,
@@ -134,7 +176,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             child: Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Text(_isCharging ? '⚡' : '🔌', style: const TextStyle(fontSize: 52))
+                Icon(
+                  _isCharging ? Icons.bolt_rounded : Icons.power_rounded,
+                  size: 52,
+                  color: _isCharging ? ZapColors.primary : ZapColors.textSecondary,
+                )
                     .animate(target: _isCharging ? 1 : 0)
                     .scale(begin: const Offset(0.8, 0.8), end: const Offset(1.1, 1.1)),
                 const SizedBox(height: 6),
@@ -166,14 +212,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: Column(children: [
             _SoundCard(
               label: 'Plug-in sound',
-              directionEmoji: '🔌 →  ⚡',
+              fromIcon: Icons.power_rounded,
+              toIcon: Icons.bolt_rounded,
               sound: plugIn,
               onTap: () => _goToPicker(true),
             ).animate().slideX(begin: -0.08, duration: 400.ms, delay: 100.ms, curve: Curves.easeOut),
             const SizedBox(height: ZapTheme.space3),
             _SoundCard(
               label: 'Unplug sound',
-              directionEmoji: '⚡ →  🔌',
+              fromIcon: Icons.bolt_rounded,
+              toIcon: Icons.power_rounded,
               sound: plugOut,
               onTap: () => _goToPicker(false),
             ).animate().slideX(begin: 0.08, duration: 400.ms, delay: 180.ms, curve: Curves.easeOut),
@@ -196,10 +244,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 }
 
 class _SoundCard extends StatelessWidget {
-  final String label, directionEmoji;
+  final String label;
+  final IconData fromIcon, toIcon;
   final SoundModel sound;
   final VoidCallback onTap;
-  const _SoundCard({required this.label, required this.directionEmoji, required this.sound, required this.onTap});
+  const _SoundCard({required this.label, required this.fromIcon, required this.toIcon, required this.sound, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -217,13 +266,17 @@ class _SoundCard extends StatelessWidget {
             border: Border.all(color: ZapColors.primary.withOpacity(0.15)),
           ),
           child: Row(children: [
-            Text(directionEmoji, style: const TextStyle(fontSize: 18)),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(fromIcon, size: 18, color: ZapColors.textSecondary),
+              const Icon(Icons.arrow_forward_rounded, size: 14, color: ZapColors.textSecondary),
+              Icon(toIcon, size: 18, color: ZapColors.textSecondary),
+            ]),
             const SizedBox(width: ZapTheme.space3),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(label, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
               const SizedBox(height: 3),
               Row(children: [
-                Text(sound.emoji, style: const TextStyle(fontSize: 18)),
+                Text(sound.emoji, style: const TextStyle(fontSize: 14)),
                 const SizedBox(width: 6),
                 Text(sound.name, style: const TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w700)),
                 if (sound.isPremium) ...[
@@ -269,7 +322,7 @@ class _PremiumBanner extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(ZapTheme.radiusMd)),
-            child: const Text('⚡', style: TextStyle(fontSize: 22)),
+            child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 22),
           ),
           const SizedBox(width: ZapTheme.space3),
           const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

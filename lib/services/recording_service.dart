@@ -9,6 +9,10 @@ class RecordingService {
 
   static Future<bool> isRecording() => _recorder.isRecording();
 
+  /// Amplitude (dB) updates while recording, for driving a waveform visualizer.
+  static Stream<Amplitude> amplitudeStream() =>
+      _recorder.onAmplitudeChanged(const Duration(milliseconds: 120));
+
   static Future<void> start() async {
     final dir = await getApplicationDocumentsDirectory();
     final path = '${dir.path}/zap_recording_tmp.m4a';

@@ -40,5 +40,17 @@ static Future<void> restore() async {
     await _iap.restorePurchases();
   }
 
+  static Future<bool> restoreAndCheck() async {
+    await restore();
+    await Future.delayed(const Duration(seconds: 2));
+    return PrefsService.isPremium();
+  }
+
+  static Future<void> restoreSilently() async {
+    final available = await _iap.isAvailable();
+    if (!available) return;
+    await _iap.restorePurchases();
+  }
+
 static void dispose() => _sub?.cancel();
 }

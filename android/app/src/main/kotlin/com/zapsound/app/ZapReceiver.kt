@@ -23,6 +23,8 @@ class ZapReceiver : BroadcastReceiver() {
         ZapForegroundService.start(context)
 
         val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("flutter.zapsound_enabled", true)) return
+
         when (intent.action) {
             Intent.ACTION_POWER_CONNECTED -> play(
                 context,

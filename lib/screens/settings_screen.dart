@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:share_plus/share_plus.dart';
 import '../main.dart';
 import '../services/preferences_service.dart';
 import '../services/purchase_service.dart';
@@ -13,6 +16,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _isDark = true, _isPremium = false;
+  String _version = '...';
 
   @override
   void initState() { super.initState(); _load(); }
@@ -20,7 +24,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final dark = await PrefsService.isDarkMode();
     final prem = await PrefsService.isPremium();
-    if (mounted) setState(() { _isDark = dark; _isPremium = prem; });
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() { _isDark = dark; _isPremium = prem; _version = info.version; });
   }
 
   @override
@@ -30,13 +35,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(padding: const EdgeInsets.all(ZapTheme.space4), children: [
 
         if (_isPremium)
-          _PremiumBadge(),
+          _PremiumBadge().animate().fadeIn(duration: 300.ms).slideY(begin: -0.1, curve: Curves.easeOut),
 
         const SizedBox(height: ZapTheme.space4),
 
         _Section('Appearance', [
           SwitchListTile(
-            secondary: const Icon(Icons.dark_mode_outlined, size: 20),
+            secondary: _IconCircle(Icons.dark_mode_outlined),
             title: const Text('Dark mode', style: TextStyle(fontSize: ZapTheme.textMd)),
             value: _isDark,
             activeColor: ZapColors.primary,
@@ -46,7 +51,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ZapSoundApp.of(context)?.setDark(v);
             },
           ),
-        ]),
+        ], delay: 0),
 
         const SizedBox(height: ZapTheme.space4),
 
@@ -78,29 +83,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             );
           }),
-        ]),
+        ], delay: 1),
 
         const SizedBox(height: ZapTheme.space4),
 
         _Section('Purchase', [
           _Tile(Icons.restore_rounded, 'Restore purchase', 'Already bought Pro? Tap here', () async {
-            await PurchaseService.restore();
-            final ok = await PrefsService.isPremium();
+            final ok = await PurchaseService.restoreAndCheck();
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Pro restored!' : 'No purchase found.')));
               _load();
             }
           }),
-        ]),
+        ], delay: 2),
 
         const SizedBox(height: ZapTheme.space4),
 
         _Section('About', [
-          _Tile(Icons.info_outline_rounded,  'Version',         '1.0.0 — ZapSound',              () {}),
-          _Tile(Icons.star_outline_rounded,  'Rate ZapSound',   'Takes 10 seconds, means a lot', () {}),
-          _Tile(Icons.share_outlined,        'Share with friends','Tell someone about ZapSound',  () {}),
-          _Tile(Icons.policy_outlined,       'Privacy policy',   'How we handle your data',      () {}),
-        ]),
+          _Tile(Icons.info_outline_rounded, 'Version', '$_version — ZapSound', () {}),
+          _Tile(Icons.star_outline_rounded, 'Rate ZapSound', 'Available after release', () {}, disabled: true),
+          _Tile(Icons.share_outlined, 'Share with friends', 'Tell someone about ZapSound', () {
+            // TODO: add Play Store link after release
+            Share.share('Check out ZapSound — it plays a fun sound when you plug in or unplug your charger!');
+          }),
+          _Tile(Icons.policy_outlined, 'Privacy policy', 'How we handle your data', () {
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const _PrivacyPlaceholderScreen()));
+          }),
+        ], delay: 3),
       ]),
     );
   }
@@ -132,7 +141,8 @@ class _PremiumBadge extends StatelessWidget {
 class _Section extends StatelessWidget {
   final String title;
   final List<Widget> children;
-  const _Section(this.title, this.children);
+  final int delay;
+  const _Section(this.title, this.children, {this.delay = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -147,11 +157,32 @@ class _Section extends StatelessWidget {
         decoration: BoxDecoration(
           color: isDark ? ZapColors.surfaceDark : Colors.white,
           borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
-          border: Border.all(color: ZapColors.primary.withOpacity(0.1)),
+          border: Border.all(color: ZapColors.primary.withValues(alpha: 0.1)),
         ),
         child: Column(children: children),
       ),
-    ]);
+    ]).animate(delay: Duration(milliseconds: 60 * delay))
+        .fadeIn(duration: 300.ms)
+        .slideY(begin: 0.08, duration: 300.ms, curve: Curves.easeOut);
+  }
+}
+
+class _IconCircle extends StatelessWidget {
+  final IconData icon;
+  final bool disabled;
+  const _IconCircle(this.icon, {this.disabled = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = disabled ? ZapColors.textSecondary : ZapColors.primary;
+    return Container(
+      width: 38, height: 38,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
+      ),
+      child: Icon(icon, size: 18, color: color),
+    );
   }
 }
 
@@ -159,14 +190,38 @@ class _Tile extends StatelessWidget {
   final IconData icon;
   final String title, subtitle;
   final VoidCallback onTap;
-  const _Tile(this.icon, this.title, this.subtitle, this.onTap);
+  final bool disabled;
+  const _Tile(this.icon, this.title, this.subtitle, this.onTap, {this.disabled = false});
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    leading: Icon(icon, size: 20, color: ZapColors.primary),
-    title: Text(title, style: const TextStyle(fontSize: ZapTheme.textMd)),
-    subtitle: Text(subtitle, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
-    trailing: const Icon(Icons.chevron_right_rounded, size: 18, color: ZapColors.textSecondary),
-    onTap: onTap,
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: disabled ? 0.5 : 1,
+      child: ListTile(
+        leading: _IconCircle(icon, disabled: disabled),
+        title: Text(title, style: const TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w600)),
+        subtitle: Text(subtitle, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
+        trailing: const Icon(Icons.chevron_right_rounded, size: 18, color: ZapColors.textSecondary),
+        onTap: disabled ? null : onTap,
+      ),
+    );
+  }
+}
+
+class _PrivacyPlaceholderScreen extends StatelessWidget {
+  const _PrivacyPlaceholderScreen();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Privacy Policy')),
+    body: const Padding(
+      padding: EdgeInsets.all(ZapTheme.space4),
+      child: Text(
+        'ZapSound does not collect or transmit personal data. All sounds, '
+        'recordings, and preferences are stored locally on your device.\n\n'
+        'A full hosted privacy policy will be linked here after release.',
+        style: TextStyle(fontSize: ZapTheme.textMd),
+      ),
+    ),
   );
 }

@@ -28,7 +28,7 @@ class ZapSoundLibrary {
     SoundModel(id: 'p1', name: 'Cash Register', emoji: '💰', assetPath: 'assets/sounds/cash_register.wav',isPremium: true,  category: 'Funny'),
     SoundModel(id: 'p2', name: 'Level Up!',     emoji: '🎮', assetPath: 'assets/sounds/level_up.wav',     isPremium: true,  category: 'Gaming'),
     SoundModel(id: 'p3', name: 'Lightsaber',    emoji: '⚔️', assetPath: 'assets/sounds/lightsaber.wav',   isPremium: true,  category: 'Sci-Fi'),
-    SoundModel(id: 'p4', name: 'Fart 💨',       emoji: '💨', assetPath: 'assets/sounds/fart.wav',         isPremium: true,  category: 'Funny'),
+    SoundModel(id: 'p4', name: 'Fart',          emoji: '💨', assetPath: 'assets/sounds/fart.wav',         isPremium: true,  category: 'Funny'),
     SoundModel(id: 'p5', name: 'Ta-Da!',        emoji: '🎺', assetPath: 'assets/sounds/tada.wav',         isPremium: true,  category: 'Funny'),
     SoundModel(id: 'p6', name: 'Error Sound',   emoji: '❌', assetPath: 'assets/sounds/error.wav',        isPremium: true,  category: 'Funny'),
     SoundModel(id: 'p7', name: 'Airhorn',       emoji: '📣', assetPath: 'assets/sounds/airhorn.wav',      isPremium: true,  category: 'Funny'),
