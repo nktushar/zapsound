@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'services/audio_service.dart';
+import 'services/battery_service.dart';
 import 'services/purchase_service.dart';
 import 'services/preferences_service.dart';
 import 'screens/home_screen.dart';
@@ -21,12 +22,15 @@ void main() async {
   // Foreground backup: native side notifies us of charger state changes
   // so the sound can be played via just_audio directly.
   _chargerChannel.setMethodCallHandler((call) async {
+    BatteryService.chargerEvents.value++;
     if (!await PrefsService.isEnabled()) return;
     switch (call.method) {
       case 'onChargerConnected':
         await AudioService.onPlugIn();
         break;
       case 'onChargerDisconnected':
+        // When anti-theft is armed the native siren handles this event.
+        if (await PrefsService.isAntitheftArmed()) return;
         await AudioService.onPlugOut();
         break;
     }

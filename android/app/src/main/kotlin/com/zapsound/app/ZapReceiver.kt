@@ -1,12 +1,15 @@
 package com.zapsound.app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.media.MediaPlayer
-import android.net.Uri
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import com.zapsound.zapsound_fresh.MainActivity
-import java.io.File
+import com.zapsound.zapsound_fresh.R
 
 class ZapReceiver : BroadcastReceiver() {
 
@@ -14,6 +17,19 @@ class ZapReceiver : BroadcastReceiver() {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             ZapForegroundService.start(context)
             return
+        }
+
+        // Anti-theft fires regardless of foreground state and replaces the
+        // normal unplug sound.
+        if (intent.action == Intent.ACTION_POWER_DISCONNECTED) {
+            val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val armed = prefs.getBoolean("flutter.antitheft_armed", false)
+            val hasPin = prefs.getString("flutter.antitheft_pin", null) != null
+            if (armed && hasPin) {
+                ZapAlarm.start(context)
+                showAlarmScreen(context)
+                return
+            }
         }
 
         // While the app is foregrounded, MainActivity's MethodChannel handles
@@ -25,65 +41,62 @@ class ZapReceiver : BroadcastReceiver() {
         val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("flutter.zapsound_enabled", true)) return
 
+        // Sound file names are written by the Dart side on selection; the
+        // defaults mirror ZapSoundLibrary's defaults (s1 = power_up, s2 = coin).
         when (intent.action) {
-            Intent.ACTION_POWER_CONNECTED -> play(
+            Intent.ACTION_POWER_CONNECTED -> ZapSoundPlayer.play(
                 context,
-                soundId    = prefs.getString("flutter.plug_in_sound",  "s1") ?: "s1",
+                fileName   = prefs.getString("flutter.plug_in_file",  "power_up") ?: "power_up",
                 customPath = prefs.getString("flutter.custom_in_path",  null),
             )
-            Intent.ACTION_POWER_DISCONNECTED -> play(
+            Intent.ACTION_POWER_DISCONNECTED -> ZapSoundPlayer.play(
                 context,
-                soundId    = prefs.getString("flutter.plug_out_sound", "s2") ?: "s2",
+                fileName   = prefs.getString("flutter.plug_out_file", "coin") ?: "coin",
                 customPath = prefs.getString("flutter.custom_out_path", null),
             )
         }
     }
 
-    private fun play(context: Context, soundId: String, customPath: String?) {
-        if (soundId == "custom" && customPath != null) {
-            playFile(context, customPath)
-            return
+    // Launches the PIN screen over the lock screen. A full-screen-intent
+    // notification is the only launch path allowed from the background on
+    // Android 10+; when the app is foregrounded we start it directly.
+    private fun showAlarmScreen(context: Context) {
+        val alarmIntent = Intent(context, AlarmActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
+        if (MainActivity.isForeground) {
+            try {
+                context.startActivity(alarmIntent)
+                return
+            } catch (_: Exception) {}
         }
-        val resName = soundIdToResName(soundId)
-        val resId   = context.resources.getIdentifier(resName, "raw", context.packageName)
-        if (resId != 0) playRaw(context, resId)
-    }
 
-    private fun playRaw(context: Context, resId: Int) {
-        try {
-            val mp = MediaPlayer.create(context, resId) ?: return
-            mp.setOnCompletionListener { it.release() }
-            mp.start()
-        } catch (_: Exception) {}
-    }
-
-    private fun playFile(context: Context, path: String) {
-        try {
-            val mp = MediaPlayer()
-            mp.setDataSource(context, Uri.fromFile(File(path)))
-            mp.setOnCompletionListener { it.release() }
-            mp.setOnPreparedListener  { it.start()   }
-            mp.prepareAsync()
-        } catch (_: Exception) {}
-    }
-
-    // Mirrors ZapSoundLibrary IDs in sound_model.dart
-    private fun soundIdToResName(id: String): String = when (id) {
-        "s1"  -> "power_up"
-        "s2"  -> "coin"
-        "s3"  -> "beep"
-        "s4"  -> "ding"
-        "s5"  -> "pop"
-        "p1"  -> "cash_register"
-        "p2"  -> "level_up"
-        "p3"  -> "lightsaber"
-        "p4"  -> "fart"
-        "p5"  -> "tada"
-        "p6"  -> "error"
-        "p7"  -> "airhorn"
-        "p8"  -> "sword"
-        "p9"  -> "laser"
-        "p10" -> "notif"
-        else  -> "power_up"
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    "zapsound_alarm",
+                    "Anti-theft alarm",
+                    NotificationManager.IMPORTANCE_HIGH,
+                ).apply {
+                    description = "Shown when the anti-theft alarm is triggered"
+                    setSound(null, null) // the siren is played by ZapAlarm
+                },
+            )
+        }
+        val fullScreen = PendingIntent.getActivity(
+            context, 0, alarmIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, "zapsound_alarm")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Charger removed!")
+            .setContentText("Tap to enter your PIN and stop the alarm")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setOngoing(true)
+            .setFullScreenIntent(fullScreen, true)
+            .build()
+        nm.notify(2002, notification)
     }
 }

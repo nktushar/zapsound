@@ -88,9 +88,12 @@ class _RecordSoundScreenState extends State<RecordSoundScreen> with SingleTicker
 
   Future<void> _preview() async {
     if (_recordedPath == null) return;
+    if (_playing) {
+      await AudioService.stop();
+      return;
+    }
     setState(() => _playing = true);
     await AudioService.playFile(_recordedPath!);
-    await Future.delayed(const Duration(seconds: 3));
     if (mounted) setState(() => _playing = false);
   }
 

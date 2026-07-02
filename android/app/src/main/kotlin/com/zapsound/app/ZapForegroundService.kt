@@ -4,9 +4,11 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -36,6 +38,34 @@ class ZapForegroundService : Service() {
     private val chargerReceiver = ZapReceiver()
     private var chargerReceiverRegistered = false
 
+    // Battery-full alert: ACTION_BATTERY_CHANGED fires repeatedly while
+    // charging, so a latch ensures the sound plays once per charge session.
+    private var batteryFullFired = false
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val level  = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale  = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+            val pct = if (scale > 0 && level >= 0) level * 100 / scale else -1
+            // EXTRA_PLUGGED rather than EXTRA_STATUS: at 100% many devices
+            // report NOT_CHARGING while still on power.
+            val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+            if (!plugged || pct < 100) {
+                batteryFullFired = false
+                return
+            }
+            if (batteryFullFired) return
+            batteryFullFired = true
+
+            val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("flutter.zapsound_enabled", true)) return
+            if (!prefs.getBoolean("flutter.battery_full_enabled", false)) return
+            ZapSoundPlayer.playRes(
+                context,
+                prefs.getString("flutter.battery_full_file", "ding") ?: "ding",
+            )
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -46,6 +76,7 @@ class ZapForegroundService : Service() {
                 addAction(Intent.ACTION_POWER_DISCONNECTED)
             }
             registerReceiver(chargerReceiver, filter)
+            registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             chargerReceiverRegistered = true
         }
     }
@@ -53,6 +84,7 @@ class ZapForegroundService : Service() {
     override fun onDestroy() {
         if (chargerReceiverRegistered) {
             unregisterReceiver(chargerReceiver)
+            unregisterReceiver(batteryReceiver)
             chargerReceiverRegistered = false
         }
         super.onDestroy()

@@ -42,7 +42,12 @@ static Future<void> restore() async {
 
   static Future<bool> restoreAndCheck() async {
     await restore();
-    await Future.delayed(const Duration(seconds: 2));
+    // The premium flag is set asynchronously by the purchaseStream listener,
+    // so poll instead of guessing a fixed delay.
+    for (var i = 0; i < 10; i++) {
+      if (await PrefsService.isPremium()) return true;
+      await Future.delayed(const Duration(milliseconds: 400));
+    }
     return PrefsService.isPremium();
   }
 

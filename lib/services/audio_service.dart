@@ -5,6 +5,8 @@ import 'preferences_service.dart';
 class AudioService {
   static final _player = AudioPlayer();
 
+  /// Note: just_audio's play() future completes when playback finishes or is
+  /// stopped, so awaiting playAsset/playFile waits for the sound to end.
   static Future<void> playAsset(String path) async {
     try {
       await _player.stop();
@@ -39,6 +41,12 @@ class AudioService {
     }
     final sound = ZapSoundLibrary.all.firstWhere((s) => s.id == id, orElse: () => ZapSoundLibrary.all[1]);
     await playAsset(sound.assetPath);
+  }
+
+  static Future<void> stop() async {
+    try {
+      await _player.stop();
+    } catch (_) {}
   }
 
   static void dispose() => _player.dispose();

@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -64,6 +65,28 @@ class MainActivity : FlutterActivity() {
                     val pm = getSystemService(POWER_SERVICE) as PowerManager
                     result.success(pm.isIgnoringBatteryOptimizations(packageName))
                 }
+                "getBatteryStatus" -> {
+                    // ACTION_BATTERY_CHANGED is sticky; passing a null receiver
+                    // just reads the last broadcast without registering.
+                    val batt = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                    val level  = batt?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                    val scale  = batt?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+                    val status = batt?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                    val plug   = batt?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+                    val temp   = batt?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+                    result.success(mapOf(
+                        "level" to if (scale > 0 && level >= 0) level * 100 / scale else -1,
+                        "isCharging" to (status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                            status == BatteryManager.BATTERY_STATUS_FULL),
+                        "plugType" to when (plug) {
+                            BatteryManager.BATTERY_PLUGGED_AC -> "AC"
+                            BatteryManager.BATTERY_PLUGGED_USB -> "USB"
+                            BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Wireless"
+                            else -> ""
+                        },
+                        "temperature" to if (temp >= 0) temp / 10.0 else -1.0,
+                    ))
+                }
                 else -> result.notImplemented()
             }
         }
@@ -72,6 +95,11 @@ class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         isForeground = true
+        // If the anti-theft siren is sounding, the PIN screen is the only
+        // thing the user should see.
+        if (com.zapsound.app.ZapAlarm.isActive) {
+            startActivity(Intent(this, com.zapsound.app.AlarmActivity::class.java))
+        }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(Intent.ACTION_POWER_DISCONNECTED)

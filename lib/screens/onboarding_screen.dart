@@ -24,7 +24,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _PageData(
       icon: Icons.music_note_rounded,
       title: 'Pick your sounds',
-      subtitle: '50+ funny sounds for plug and unplug',
+      subtitle: '30+ fun sounds for plug and unplug',
     ),
     _PageData(
       icon: Icons.power_rounded,
@@ -71,7 +71,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final isLast = _page == _pages.length - 1;
 
     return Scaffold(
-      body: SafeArea(
+      body: Stack(children: [
+        const AuraBackground(),
+        SafeArea(
         child: Column(
           children: [
             // Skip button
@@ -132,13 +134,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             // Action button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
-              child: SizedBox(
+              child: Container(
                 width: double.infinity,
                 height: 56,
+                decoration: BoxDecoration(
+                  gradient: ZapGradients.brand,
+                  borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
+                  boxShadow: [
+                    BoxShadow(color: ZapColors.primary.withValues(alpha: 0.35), blurRadius: 18, offset: const Offset(0, 6)),
+                  ],
+                ),
                 child: ElevatedButton(
                   onPressed: _next,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: ZapColors.primary,
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
                     foregroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
@@ -164,6 +174,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ],
         ),
       ),
+      ]),
     );
   }
 }
@@ -189,21 +200,31 @@ class _OnboardingPage extends StatelessWidget {
         children: [
           // Emoji blob
           Container(
-            width: 140,
-            height: 140,
+            width: 148,
+            height: 148,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: ZapColors.primary.withOpacity(0.12),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  ZapColors.primary.withValues(alpha: 0.20),
+                  ZapColors.cyan.withValues(alpha: 0.14),
+                ],
+              ),
               border: Border.all(
-                color: ZapColors.primary.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: isDark ? 0.12 : 0.5),
                 width: 1.5,
               ),
             ),
             child: Center(
-              child: Icon(
-                data.icon,
-                size: 60,
-                color: ZapColors.primary,
+              child: ShaderMask(
+                shaderCallback: (r) => ZapGradients.brand.createShader(r),
+                child: Icon(
+                  data.icon,
+                  size: 64,
+                  color: Colors.white,
+                ),
               ),
             ),
           )
@@ -222,7 +243,7 @@ class _OnboardingPage extends StatelessWidget {
             data.title,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontSize: ZapTheme.text2xl,
+              fontSize: 28,
               fontWeight: FontWeight.w800,
               height: 1.2,
             ),

@@ -9,6 +9,14 @@ class PrefsService {
   static const _customIn  = 'custom_in_path';
   static const _customOut = 'custom_out_path';
   static const _enabled   = 'zapsound_enabled';
+  // File-name mirrors read by the native layer (ZapReceiver / foreground service).
+  static const _plugInFile      = 'plug_in_file';
+  static const _plugOutFile     = 'plug_out_file';
+  static const _battFullEnabled = 'battery_full_enabled';
+  static const _battFullSound   = 'battery_full_sound';
+  static const _battFullFile    = 'battery_full_file';
+  static const _antitheftArmed  = 'antitheft_armed';
+  static const _antitheftPin    = 'antitheft_pin';
 
   static Future<SharedPreferences> get _p async => SharedPreferences.getInstance();
 
@@ -20,6 +28,10 @@ class PrefsService {
   static Future<String?> getCustomIn()   async => (await _p).getString(_customIn);
   static Future<String?> getCustomOut()  async => (await _p).getString(_customOut);
   static Future<bool>    isEnabled()     async => (await _p).getBool(_enabled)   ?? true;
+  static Future<bool>    isBatteryFullEnabled() async => (await _p).getBool(_battFullEnabled) ?? false;
+  static Future<String>  getBatteryFullSound()  async => (await _p).getString(_battFullSound) ?? 's4';
+  static Future<bool>    isAntitheftArmed()     async => (await _p).getBool(_antitheftArmed) ?? false;
+  static Future<String?> getAntitheftPin()      async => (await _p).getString(_antitheftPin);
 
   static Future<void> setPlugIn(String v)     async => (await _p).setString(_plugIn, v);
   static Future<void> setPlugOut(String v)    async => (await _p).setString(_plugOut, v);
@@ -29,4 +41,16 @@ class PrefsService {
   static Future<void> setCustomIn(String v)   async => (await _p).setString(_customIn, v);
   static Future<void> setCustomOut(String v)  async => (await _p).setString(_customOut, v);
   static Future<void> setEnabled(bool v)      async => (await _p).setBool(_enabled, v);
+  static Future<void> clearCustomIn()         async => (await _p).remove(_customIn);
+  static Future<void> clearCustomOut()        async => (await _p).remove(_customOut);
+  static Future<void> setPlugInFile(String v)       async => (await _p).setString(_plugInFile, v);
+  static Future<void> setPlugOutFile(String v)      async => (await _p).setString(_plugOutFile, v);
+  static Future<void> setBatteryFullEnabled(bool v) async => (await _p).setBool(_battFullEnabled, v);
+  static Future<void> setBatteryFullSound(String id, String file) async {
+    final p = await _p;
+    await p.setString(_battFullSound, id);
+    await p.setString(_battFullFile, file);
+  }
+  static Future<void> setAntitheftArmed(bool v)   async => (await _p).setBool(_antitheftArmed, v);
+  static Future<void> setAntitheftPin(String v)   async => (await _p).setString(_antitheftPin, v);
 }

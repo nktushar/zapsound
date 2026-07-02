@@ -38,7 +38,7 @@ Future<void> _restore() async {
     }
   }
 static const _features = [
-    (Icons.bolt_rounded, '50+ premium sounds',        'Funny, gaming, sci-fi packs'),
+    (Icons.bolt_rounded, '25+ premium sounds',        'Funny, retro, sci-fi & chill packs'),
     (Icons.mic_rounded, 'Record your own sounds',     'Your voice, any sound you like'),
     (Icons.block_rounded, 'Zero ads forever',          'Clean experience, always'),
     (Icons.card_giftcard_rounded, 'All future sound packs free','Every new release included'),
@@ -47,7 +47,9 @@ static const _features = [
 @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
+      body: Stack(children: [
+        const AuraBackground(),
+        SafeArea(
         child: SingleChildScrollView(
           child: Column(children: [
             Container(
@@ -55,11 +57,11 @@ static const _features = [
               margin: const EdgeInsets.all(ZapTheme.space5),
               padding: const EdgeInsets.symmetric(vertical: 32, horizontal: ZapTheme.space6),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft, end: Alignment.bottomRight,
-                  colors: [Color(0xFF2D1B8A), Color(0xFF4A42CC), Color(0xFF6C63FF)],
-                ),
+                gradient: ZapGradients.premium,
                 borderRadius: BorderRadius.circular(ZapTheme.radiusXl),
+                boxShadow: [
+                  BoxShadow(color: ZapColors.primary.withValues(alpha: 0.3), blurRadius: 30, offset: const Offset(0, 10)),
+                ],
               ),
               child: Column(children: [
                 const Icon(Icons.bolt_rounded, color: Colors.white, size: 52)
@@ -92,12 +94,20 @@ const SizedBox(height: ZapTheme.space8),
 Padding(
               padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
               child: Column(children: [
-                SizedBox(
+                Container(
                   width: double.infinity, height: 58,
+                  decoration: BoxDecoration(
+                    gradient: ZapGradients.brand,
+                    borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
+                    boxShadow: [
+                      BoxShadow(color: ZapColors.primary.withValues(alpha: 0.35), blurRadius: 18, offset: const Offset(0, 6)),
+                    ],
+                  ),
                   child: ElevatedButton(
                     onPressed: _loading ? null : _buy,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: ZapColors.primary,
+                      backgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ZapTheme.radiusLg)),
                       elevation: 0,
@@ -133,6 +143,7 @@ Padding(
           ]),
         ),
       ),
+      ]),
     );
   }
 }
@@ -145,23 +156,31 @@ class _FeatureRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: ZapTheme.space4),
-      child: Row(children: [
-        Container(
-          width: 46, height: 46,
-          decoration: BoxDecoration(
-            color: ZapColors.primary.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
+      padding: const EdgeInsets.only(bottom: ZapTheme.space3),
+      child: GlassCard(
+        padding: const EdgeInsets.all(ZapTheme.space3),
+        child: Row(children: [
+          Container(
+            width: 46, height: 46,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  ZapColors.primary.withValues(alpha: 0.20),
+                  ZapColors.cyan.withValues(alpha: 0.12),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
+            ),
+            child: Center(child: Icon(icon, color: ZapColors.primary, size: 22)),
           ),
-          child: Center(child: Icon(icon, color: ZapColors.primary, size: 22)),
-        ),
-        const SizedBox(width: ZapTheme.space3),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: ZapTheme.textMd)),
-          Text(subtitle, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
-        ])),
-        const Icon(Icons.check_circle_rounded, color: ZapColors.primary, size: 20),
-      ]),
+          const SizedBox(width: ZapTheme.space3),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: ZapTheme.textMd)),
+            Text(subtitle, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
+          ])),
+          const Icon(Icons.check_circle_rounded, color: ZapColors.success, size: 20),
+        ]),
+      ),
     ).animate().slideX(begin: 0.1, duration: 350.ms, delay: Duration(milliseconds: delay), curve: Curves.easeOut);
   }
 }

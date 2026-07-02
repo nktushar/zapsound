@@ -4,9 +4,12 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import '../main.dart';
+import '../models/sound_model.dart';
 import '../services/preferences_service.dart';
 import '../services/purchase_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pin_dialog.dart';
+import 'sound_picker_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15,7 +18,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _isDark = true, _isPremium = false;
+  bool _isDark = true, _isPremium = false, _battFullEnabled = false;
+  String _battFullSoundName = 'Ding!';
   String _version = '...';
 
   @override
@@ -24,8 +28,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final dark = await PrefsService.isDarkMode();
     final prem = await PrefsService.isPremium();
+    final battFull = await PrefsService.isBatteryFullEnabled();
+    final battFullId = await PrefsService.getBatteryFullSound();
     final info = await PackageInfo.fromPlatform();
-    if (mounted) setState(() { _isDark = dark; _isPremium = prem; _version = info.version; });
+    final battSound = ZapSoundLibrary.all.firstWhere(
+      (s) => s.id == battFullId,
+      orElse: () => ZapSoundLibrary.all[3],
+    );
+    if (mounted) {
+      setState(() {
+        _isDark = dark;
+        _isPremium = prem;
+        _battFullEnabled = battFull;
+        _battFullSoundName = '${battSound.emoji} ${battSound.name}';
+        _version = info.version;
+      });
+    }
   }
 
   @override
@@ -41,10 +59,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         _Section('Appearance', [
           SwitchListTile(
-            secondary: _IconCircle(Icons.dark_mode_outlined),
+            secondary: const _IconCircle(Icons.dark_mode_outlined),
             title: const Text('Dark mode', style: TextStyle(fontSize: ZapTheme.textMd)),
             value: _isDark,
-            activeColor: ZapColors.primary,
+            activeThumbColor: ZapColors.primary,
             onChanged: (v) async {
               setState(() => _isDark = v);
               await PrefsService.setDarkMode(v);
@@ -52,6 +70,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
         ], delay: 0),
+
+        const SizedBox(height: ZapTheme.space4),
+
+        _Section('Alerts', [
+          SwitchListTile(
+            secondary: const _IconCircle(Icons.battery_full_rounded),
+            title: const Text('Battery full alert', style: TextStyle(fontSize: ZapTheme.textMd)),
+            subtitle: const Text('Play a sound when charging reaches 100%',
+                style: TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
+            value: _battFullEnabled,
+            activeThumbColor: ZapColors.primary,
+            onChanged: (v) async {
+              setState(() => _battFullEnabled = v);
+              await PrefsService.setBatteryFullEnabled(v);
+            },
+          ),
+          if (_battFullEnabled)
+            _Tile(Icons.music_note_rounded, 'Battery full sound', _battFullSoundName, () async {
+              final currentId = await PrefsService.getBatteryFullSound();
+              if (!mounted) return;
+              await Navigator.push(context, MaterialPageRoute(
+                builder: (_) => SoundPickerScreen(
+                  target: SoundTarget.batteryFull,
+                  currentId: currentId,
+                  isPremium: _isPremium,
+                ),
+              ));
+              _load();
+            }),
+          if (_isPremium)
+            _Tile(Icons.pin_rounded, 'Anti-theft PIN', 'Change the PIN that stops the alarm', () async {
+              final pin = await showPinSetupDialog(context);
+              if (pin != null) {
+                await PrefsService.setAntitheftPin(pin);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('PIN updated.')),
+                  );
+                }
+              }
+            }),
+        ], delay: 1),
 
         const SizedBox(height: ZapTheme.space4),
 
@@ -121,7 +181,7 @@ class _PremiumBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(ZapTheme.space4),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [Color(0xFF4A42CC), Color(0xFF6C63FF)]),
+        gradient: ZapGradients.premium,
         borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
       ),
       child: const Row(children: [
@@ -146,19 +206,13 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: const EdgeInsets.only(left: 4, bottom: 8),
         child: Text(title.toUpperCase(),
           style: const TextStyle(fontSize: ZapTheme.textXs, fontWeight: FontWeight.w700, color: ZapColors.textSecondary, letterSpacing: 1.2)),
       ),
-      Container(
-        decoration: BoxDecoration(
-          color: isDark ? ZapColors.surfaceDark : Colors.white,
-          borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
-          border: Border.all(color: ZapColors.primary.withValues(alpha: 0.1)),
-        ),
+      GlassCard(
         child: Column(children: children),
       ),
     ]).animate(delay: Duration(milliseconds: 60 * delay))

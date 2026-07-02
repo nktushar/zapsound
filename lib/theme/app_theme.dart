@@ -1,19 +1,43 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+/// "Electric Glass" design language: dark-first, OLED near-black background,
+/// electric violet → cyan brand gradient, translucent glass surfaces.
 class ZapColors {
-  static const primary      = Color(0xFF6C63FF);
-  static const primaryLight = Color(0xFF9D97FF);
+  static const primary      = Color(0xFF7C5CFF); // electric violet
+  static const primaryLight = Color(0xFFA48CFF);
+  static const cyan         = Color(0xFF4CC9FF); // gradient end
   static const accent       = Color(0xFFFFD60A);
-  static const bgDark       = Color(0xFF0F0E17);
-  static const surfaceDark  = Color(0xFF1A1926);
-  static const surfaceDark2 = Color(0xFF252338);
-  static const bgLight      = Color(0xFFF5F4FF);
+  static const bgDark       = Color(0xFF050508); // OLED near-black
+  static const surfaceDark  = Color(0xFF12121C);
+  static const surfaceDark2 = Color(0xFF1C1C2A);
+  static const bgLight      = Color(0xFFF4F3FB);
   static const surfaceLight = Color(0xFFFFFFFF);
   static const textSecondary= Color(0xFF9B9AB0);
   static const success      = Color(0xFF2DD4A7);
   static const gold         = Color(0xFFFFB300);
   static const goldLight    = Color(0xFFFFD60A);
+}
+
+class ZapGradients {
+  /// Primary brand gradient (analogous violet → cyan).
+  static const brand = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [ZapColors.primary, ZapColors.cyan],
+  );
+
+  /// Hero / paywall backdrop: deep violet through brand colors.
+  static const premium = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF2A1B7A), Color(0xFF5A42E0), Color(0xFF7C5CFF), Color(0xFF4CC9FF)],
+  );
+
+  static const gold = LinearGradient(
+    colors: [ZapColors.gold, ZapColors.goldLight],
+  );
 }
 
 class ZapTheme {
@@ -37,6 +61,80 @@ class ZapTheme {
   static const text2xl = 24.0;
 }
 
+/// Frosted translucent card used across screens. In dark mode a white-tinted
+/// glass over the near-black background; in light mode a soft white card.
+class GlassCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+  final double radius;
+  final VoidCallback? onTap;
+  final Gradient? borderGradient;
+
+  const GlassCard({
+    super.key,
+    required this.child,
+    this.padding,
+    this.radius = ZapTheme.radiusLg,
+    this.onTap,
+    this.borderGradient,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final card = ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white.withValues(alpha: 0.75),
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(
+              color: isDark ? Colors.white.withValues(alpha: 0.10) : ZapColors.primary.withValues(alpha: 0.12),
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
+    if (onTap == null) return card;
+    return GestureDetector(onTap: onTap, child: card);
+  }
+}
+
+/// Soft violet/cyan radial glows placed behind screen content (OLED-friendly).
+class AuraBackground extends StatelessWidget {
+  const AuraBackground({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final base = isDark ? 0.16 : 0.10;
+    return IgnorePointer(
+      child: Stack(children: [
+        Positioned(
+          top: -120, left: -100,
+          child: _blob(ZapColors.primary.withValues(alpha: base), 340),
+        ),
+        Positioned(
+          bottom: -140, right: -120,
+          child: _blob(ZapColors.cyan.withValues(alpha: base * 0.8), 380),
+        ),
+      ]),
+    );
+  }
+
+  Widget _blob(Color color, double size) => Container(
+    width: size, height: size,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      gradient: RadialGradient(colors: [color, color.withValues(alpha: 0)]),
+    ),
+  );
+}
+
 class AppTheme {
   static ThemeData darkTheme = ThemeData(
     useMaterial3: true,
@@ -44,8 +142,9 @@ class AppTheme {
     colorScheme: ColorScheme.fromSeed(seedColor: ZapColors.primary, brightness: Brightness.dark).copyWith(
       surface: ZapColors.surfaceDark,
       primary: ZapColors.primary,
+      secondary: ZapColors.cyan,
     ),
-    textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme),
+    textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme),
     scaffoldBackgroundColor: ZapColors.bgDark,
     cardTheme: CardThemeData(
       elevation: 0,
@@ -58,8 +157,10 @@ class AppTheme {
   static ThemeData lightTheme = ThemeData(
     useMaterial3: true,
     brightness: Brightness.light,
-    colorScheme: ColorScheme.fromSeed(seedColor: ZapColors.primary, brightness: Brightness.light),
-    textTheme: GoogleFonts.poppinsTextTheme(),
+    colorScheme: ColorScheme.fromSeed(seedColor: ZapColors.primary, brightness: Brightness.light).copyWith(
+      secondary: ZapColors.cyan,
+    ),
+    textTheme: GoogleFonts.outfitTextTheme(),
     scaffoldBackgroundColor: ZapColors.bgLight,
     cardTheme: CardThemeData(
       elevation: 0,

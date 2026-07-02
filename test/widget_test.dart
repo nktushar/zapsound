@@ -1,30 +1,33 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:zapsound_fresh/main.dart';
+import 'package:zapsound/models/sound_model.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('ZapSoundLibrary', () {
+    test('has free and premium sounds with unique ids', () {
+      final ids = ZapSoundLibrary.all.map((s) => s.id).toList();
+      expect(ids.toSet().length, ids.length);
+      expect(ZapSoundLibrary.all.where((s) => !s.isPremium), isNotEmpty);
+      expect(ZapSoundLibrary.all.where((s) => s.isPremium), isNotEmpty);
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test('every sound except custom has an asset path', () {
+      for (final s in ZapSoundLibrary.all) {
+        if (s.id == 'custom') {
+          expect(s.assetPath, isEmpty);
+        } else {
+          expect(s.assetPath, startsWith('assets/sounds/'));
+          expect(s.assetPath, endsWith('.wav'));
+        }
+      }
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    test('categories start with All and cover every sound', () {
+      final cats = ZapSoundLibrary.categories;
+      expect(cats.first, 'All');
+      for (final s in ZapSoundLibrary.all) {
+        expect(cats, contains(s.category));
+      }
+    });
   });
 }

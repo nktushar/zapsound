@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../models/sound_model.dart';
@@ -8,10 +9,10 @@ import 'premium_screen.dart';
 import 'record_sound_screen.dart';
 
 class SoundPickerScreen extends StatefulWidget {
-  final bool isPlugIn;
+  final SoundTarget target;
   final String currentId;
   final bool isPremium;
-  const SoundPickerScreen({super.key, required this.isPlugIn, required this.currentId, required this.isPremium});
+  const SoundPickerScreen({super.key, required this.target, required this.currentId, required this.isPremium});
 
   @override
   State<SoundPickerScreen> createState() => _SoundPickerScreenState();
@@ -23,6 +24,11 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
   String? _playingId;
   bool _customRecorded = false;
 
+  // Custom recordings only exist for the two charger events; the battery-full
+  // alert picks from the built-in library.
+  bool get _isPlugIn => widget.target == SoundTarget.plugIn;
+  bool get _supportsCustom => widget.target != SoundTarget.batteryFull;
+
   @override
   void initState() {
     super.initState();
@@ -31,7 +37,8 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
   }
 
   Future<void> _loadCustomRecorded() async {
-    final path = widget.isPlugIn ? await PrefsService.getCustomIn() : await PrefsService.getCustomOut();
+    if (!_supportsCustom) return;
+    final path = _isPlugIn ? await PrefsService.getCustomIn() : await PrefsService.getCustomOut();
     if (mounted) setState(() => _customRecorded = path != null);
   }
 
@@ -39,26 +46,28 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
     final base = _category == 'All'
         ? ZapSoundLibrary.all
         : ZapSoundLibrary.all.where((s) => s.category == _category).toList();
-    final sorted = [...base];
+    final sorted = base.where((s) => _supportsCustom || s.id != 'custom').toList();
     sorted.sort((a, b) => a.id == 'custom' ? -1 : (b.id == 'custom' ? 1 : 0));
     return sorted;
   }
 
   Future<void> _preview(SoundModel s) async {
+    if (_playingId == s.id) {
+      // Stopping resolves the awaiting play() below, which clears the state.
+      await AudioService.stop();
+      return;
+    }
     if (s.id == 'custom') {
-      final path = widget.isPlugIn ? await PrefsService.getCustomIn() : await PrefsService.getCustomOut();
+      final path = _isPlugIn ? await PrefsService.getCustomIn() : await PrefsService.getCustomOut();
       if (path == null) return;
       setState(() => _playingId = s.id);
       await AudioService.playFile(path);
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) setState(() => _playingId = null);
-      return;
+    } else {
+      if (s.assetPath.isEmpty) return;
+      setState(() => _playingId = s.id);
+      await AudioService.playAsset(s.assetPath);
     }
-    if (s.assetPath.isEmpty) return;
-    setState(() => _playingId = s.id);
-    await AudioService.playAsset(s.assetPath);
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted) setState(() => _playingId = null);
+    if (mounted && _playingId == s.id) setState(() => _playingId = null);
   }
 
   Future<void> _select(SoundModel s) async {
@@ -70,7 +79,7 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
       if (!_customRecorded) {
         final saved = await Navigator.push<bool>(
           context,
-          MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: widget.isPlugIn)),
+          MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: _isPlugIn)),
         );
         if (saved == true && mounted) Navigator.pop(context);
         return;
@@ -78,17 +87,67 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
       // Already recorded: behave like any other row — select and close.
     }
     setState(() => _selectedId = s.id);
-    if (widget.isPlugIn) await PrefsService.setPlugIn(s.id);
-    else await PrefsService.setPlugOut(s.id);
+    switch (widget.target) {
+      case SoundTarget.plugIn:
+        await PrefsService.setPlugIn(s.id);
+        await PrefsService.setPlugInFile(s.fileName);
+        break;
+      case SoundTarget.plugOut:
+        await PrefsService.setPlugOut(s.id);
+        await PrefsService.setPlugOutFile(s.fileName);
+        break;
+      case SoundTarget.batteryFull:
+        await PrefsService.setBatteryFullSound(s.id, s.fileName);
+        break;
+    }
     if (mounted) Navigator.pop(context);
   }
 
   Future<void> _reRecord() async {
     final saved = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: widget.isPlugIn)),
+      MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: _isPlugIn)),
     );
     if (saved == true) await _loadCustomRecorded();
+  }
+
+  Future<void> _removeRecording() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove recording?'),
+        content: const Text('Your custom recording will be deleted. You can record a new one anytime.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final path = _isPlugIn ? await PrefsService.getCustomIn() : await PrefsService.getCustomOut();
+    if (path != null) {
+      try {
+        final f = File(path);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
+    if (_isPlugIn) {
+      await PrefsService.clearCustomIn();
+      if (_selectedId == 'custom') {
+        await PrefsService.setPlugIn('s1');
+        await PrefsService.setPlugInFile('power_up');
+        _selectedId = 's1';
+      }
+    } else {
+      await PrefsService.clearCustomOut();
+      if (_selectedId == 'custom') {
+        await PrefsService.setPlugOut('s2');
+        await PrefsService.setPlugOutFile('coin');
+        _selectedId = 's2';
+      }
+    }
+    await _loadCustomRecorded();
   }
 
   @override
@@ -96,7 +155,12 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isPlugIn ? 'Plug-in Sound' : 'Unplug Sound',
+        title: Text(
+            switch (widget.target) {
+              SoundTarget.plugIn => 'Plug-in Sound',
+              SoundTarget.plugOut => 'Unplug Sound',
+              SoundTarget.batteryFull => 'Battery Full Sound',
+            },
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
       ),
       body: Column(children: [
@@ -121,7 +185,7 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                       decoration: BoxDecoration(
                         gradient: sel
-                            ? const LinearGradient(colors: [Color(0xFF4A42CC), ZapColors.primary])
+                            ? ZapGradients.brand
                             : null,
                         color: sel ? null : (isDark ? ZapColors.surfaceDark : Colors.white),
                         borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
@@ -278,6 +342,18 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
                                   borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
                                 ),
                                 child: const Icon(Icons.fiber_manual_record, color: ZapColors.gold, size: 16),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: _removeRecording,
+                              child: Container(
+                                width: 32, height: 32,
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
+                                ),
+                                child: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 16),
                               ),
                             ),
                           ])
