@@ -24,6 +24,7 @@ void main() async {
   _chargerChannel.setMethodCallHandler((call) async {
     BatteryService.chargerEvents.value++;
     if (!await PrefsService.isEnabled()) return;
+    if (await PrefsService.isQuietNow()) return;
     switch (call.method) {
       case 'onChargerConnected':
         await AudioService.onPlugIn();

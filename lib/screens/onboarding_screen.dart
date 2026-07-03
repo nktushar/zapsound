@@ -24,12 +24,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _PageData(
       icon: Icons.music_note_rounded,
       title: 'Pick your sounds',
-      subtitle: '30+ fun sounds for plug and unplug',
+      subtitle: '30+ fun sounds for plug and unplug — or record your own',
     ),
     _PageData(
       icon: Icons.power_rounded,
       title: 'Works automatically',
-      subtitle: 'Just plug in your charger and enjoy',
+      subtitle: 'Sounds play the moment you plug in, even when the app is closed',
     ),
   ];
 
@@ -122,7 +122,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   decoration: BoxDecoration(
                     color: _page == i
                         ? ZapColors.primary
-                        : ZapColors.primary.withOpacity(0.25),
+                        : ZapColors.primary.withValues(alpha: 0.25),
                     borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
                   ),
                 ),

@@ -1,4 +1,4 @@
-package com.zapsound.zapsound_fresh
+package com.zapsound.app
 
 import android.Manifest
 import android.app.AlertDialog
@@ -15,7 +15,6 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.zapsound.app.ZapForegroundService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -97,8 +96,8 @@ class MainActivity : FlutterActivity() {
         isForeground = true
         // If the anti-theft siren is sounding, the PIN screen is the only
         // thing the user should see.
-        if (com.zapsound.app.ZapAlarm.isActive) {
-            startActivity(Intent(this, com.zapsound.app.AlarmActivity::class.java))
+        if (ZapAlarm.isActive) {
+            startActivity(Intent(this, AlarmActivity::class.java))
         }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_POWER_CONNECTED)

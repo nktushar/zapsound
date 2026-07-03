@@ -10,6 +10,7 @@ class AudioService {
   static Future<void> playAsset(String path) async {
     try {
       await _player.stop();
+      await _player.setVolume(await PrefsService.getVolume() / 100.0);
       await _player.setAsset(path);
       await _player.play();
     } catch (_) {}
@@ -18,6 +19,7 @@ class AudioService {
   static Future<void> playFile(String path) async {
     try {
       await _player.stop();
+      await _player.setVolume(await PrefsService.getVolume() / 100.0);
       await _player.setFilePath(path);
       await _player.play();
     } catch (_) {}

@@ -4,7 +4,6 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
-import com.zapsound.zapsound_fresh.R
 
 // Anti-theft siren: loops the alarm sound at max alarm-stream volume until
 // dismissed with the PIN in AlarmActivity. The sound is driven from here (not

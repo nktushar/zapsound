@@ -8,8 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import com.zapsound.zapsound_fresh.MainActivity
-import com.zapsound.zapsound_fresh.R
 
 class ZapReceiver : BroadcastReceiver() {
 
@@ -40,6 +38,7 @@ class ZapReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("flutter.zapsound_enabled", true)) return
+        if (ZapSoundPlayer.isQuietNow(prefs)) return
 
         // Sound file names are written by the Dart side on selection; the
         // defaults mirror ZapSoundLibrary's defaults (s1 = power_up, s2 = coin).
@@ -89,7 +88,7 @@ class ZapReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, "zapsound_alarm")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_zap)
             .setContentTitle("Charger removed!")
             .setContentText("Tap to enter your PIN and stop the alarm")
             .setPriority(NotificationCompat.PRIORITY_MAX)

@@ -12,7 +12,6 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.zapsound.zapsound_fresh.R
 
 // Minimal foreground service whose only job is to (a) keep the process alive
 // and (b) hold a *dynamically* registered receiver for
@@ -59,6 +58,7 @@ class ZapForegroundService : Service() {
             val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("flutter.zapsound_enabled", true)) return
             if (!prefs.getBoolean("flutter.battery_full_enabled", false)) return
+            if (ZapSoundPlayer.isQuietNow(prefs)) return
             ZapSoundPlayer.playRes(
                 context,
                 prefs.getString("flutter.battery_full_file", "ding") ?: "ding",
@@ -112,7 +112,7 @@ class ZapForegroundService : Service() {
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("ZapSound is active")
             .setContentText("Listening for charger plug/unplug")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_zap)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setOngoing(true)
             .build()

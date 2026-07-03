@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import '../main.dart';
 import '../models/sound_model.dart';
+import '../services/audio_service.dart';
 import '../services/preferences_service.dart';
 import '../services/purchase_service.dart';
 import '../theme/app_theme.dart';
@@ -19,6 +20,9 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _isDark = true, _isPremium = false, _battFullEnabled = false;
+  bool _quietEnabled = false;
+  int _quietStart = 22 * 60, _quietEnd = 7 * 60;
+  double _volume = 100;
   String _battFullSoundName = 'Ding!';
   String _version = '...';
 
@@ -30,6 +34,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prem = await PrefsService.isPremium();
     final battFull = await PrefsService.isBatteryFullEnabled();
     final battFullId = await PrefsService.getBatteryFullSound();
+    final volume = await PrefsService.getVolume();
+    final quietEnabled = await PrefsService.isQuietHoursEnabled();
+    final quietStart = await PrefsService.getQuietStart();
+    final quietEnd = await PrefsService.getQuietEnd();
     final info = await PackageInfo.fromPlatform();
     final battSound = ZapSoundLibrary.all.firstWhere(
       (s) => s.id == battFullId,
@@ -41,8 +49,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _isPremium = prem;
         _battFullEnabled = battFull;
         _battFullSoundName = '${battSound.emoji} ${battSound.name}';
+        _volume = volume.toDouble();
+        _quietEnabled = quietEnabled;
+        _quietStart = quietStart;
+        _quietEnd = quietEnd;
         _version = info.version;
       });
+    }
+  }
+
+  String _formatMinutes(int m) =>
+      TimeOfDay(hour: m ~/ 60, minute: m % 60).format(context);
+
+  Future<void> _pickQuietTime({required bool isStart}) async {
+    final current = isStart ? _quietStart : _quietEnd;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: current ~/ 60, minute: current % 60),
+      helpText: isStart ? 'Quiet hours start' : 'Quiet hours end',
+    );
+    if (picked == null) return;
+    final minutes = picked.hour * 60 + picked.minute;
+    if (isStart) {
+      await PrefsService.setQuietStart(minutes);
+      if (mounted) setState(() => _quietStart = minutes);
+    } else {
+      await PrefsService.setQuietEnd(minutes);
+      if (mounted) setState(() => _quietEnd = minutes);
     }
   }
 
@@ -57,18 +90,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         const SizedBox(height: ZapTheme.space4),
 
-        _Section('Appearance', [
-          SwitchListTile(
-            secondary: const _IconCircle(Icons.dark_mode_outlined),
-            title: const Text('Dark mode', style: TextStyle(fontSize: ZapTheme.textMd)),
-            value: _isDark,
-            activeThumbColor: ZapColors.primary,
-            onChanged: (v) async {
-              setState(() => _isDark = v);
-              await PrefsService.setDarkMode(v);
-              ZapSoundApp.of(context)?.setDark(v);
+        _Section('Sound', [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(ZapTheme.space4, ZapTheme.space3, ZapTheme.space4, 0),
+            child: Row(children: [
+              const _IconCircle(Icons.volume_up_rounded),
+              const SizedBox(width: ZapTheme.space4),
+              const Expanded(
+                child: Text('Volume', style: TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w600)),
+              ),
+              Text('${_volume.round()}%',
+                  style: const TextStyle(fontSize: ZapTheme.textSm, fontWeight: FontWeight.w700, color: ZapColors.primary)),
+            ]),
+          ),
+          Slider(
+            value: _volume,
+            min: 0,
+            max: 100,
+            activeColor: ZapColors.primary,
+            onChanged: (v) => setState(() => _volume = v),
+            onChangeEnd: (v) async {
+              await PrefsService.setVolume(v.round());
+              // Play the current plug-in sound so the level can be judged.
+              await AudioService.onPlugIn();
             },
           ),
+          SwitchListTile(
+            secondary: const _IconCircle(Icons.bedtime_outlined),
+            title: const Text('Quiet hours', style: TextStyle(fontSize: ZapTheme.textMd)),
+            subtitle: const Text('Mute charger sounds at night — the anti-theft alarm still works',
+                style: TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
+            value: _quietEnabled,
+            activeThumbColor: ZapColors.primary,
+            onChanged: (v) async {
+              setState(() => _quietEnabled = v);
+              await PrefsService.setQuietHoursEnabled(v);
+            },
+          ),
+          if (_quietEnabled) ...[
+            _Tile(Icons.nights_stay_outlined, 'Starts', _formatMinutes(_quietStart),
+                () => _pickQuietTime(isStart: true)),
+            _Tile(Icons.wb_sunny_outlined, 'Ends', _formatMinutes(_quietEnd),
+                () => _pickQuietTime(isStart: false)),
+          ],
         ], delay: 0),
 
         const SizedBox(height: ZapTheme.space4),
@@ -115,6 +179,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         const SizedBox(height: ZapTheme.space4),
 
+        _Section('Appearance', [
+          SwitchListTile(
+            secondary: const _IconCircle(Icons.dark_mode_outlined),
+            title: const Text('Dark mode', style: TextStyle(fontSize: ZapTheme.textMd)),
+            value: _isDark,
+            activeThumbColor: ZapColors.primary,
+            onChanged: (v) async {
+              setState(() => _isDark = v);
+              await PrefsService.setDarkMode(v);
+              ZapSoundApp.of(context)?.setDark(v);
+            },
+          ),
+        ], delay: 2),
+
+        const SizedBox(height: ZapTheme.space4),
+
         _Section('Background & Reliability', [
           _Tile(Icons.battery_charging_full_rounded, 'Allow background activity',
               'Required so charger sounds play when ZapSound is closed', () async {
@@ -143,24 +223,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             );
           }),
-        ], delay: 1),
+        ], delay: 3),
 
         const SizedBox(height: ZapTheme.space4),
 
-        _Section('Purchase', [
-          _Tile(Icons.restore_rounded, 'Restore purchase', 'Already bought Pro? Tap here', () async {
-            final ok = await PurchaseService.restoreAndCheck();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Pro restored!' : 'No purchase found.')));
-              _load();
-            }
-          }),
-        ], delay: 2),
-
-        const SizedBox(height: ZapTheme.space4),
+        if (!_isPremium) ...[
+          _Section('Purchase', [
+            _Tile(Icons.restore_rounded, 'Restore purchase', 'Already bought Pro? Get it back here', () async {
+              final ok = await PurchaseService.restoreAndCheck();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Pro restored!' : 'No purchase found.')));
+                _load();
+              }
+            }),
+          ], delay: 4),
+          const SizedBox(height: ZapTheme.space4),
+        ],
 
         _Section('About', [
-          _Tile(Icons.info_outline_rounded, 'Version', '$_version — ZapSound', () {}),
+          _Tile(Icons.info_outline_rounded, 'Version', 'ZapSound $_version', null),
           _Tile(Icons.star_outline_rounded, 'Rate ZapSound', 'Available after release', () {}, disabled: true),
           _Tile(Icons.share_outlined, 'Share with friends', 'Tell someone about ZapSound', () {
             // TODO: add Play Store link after release
@@ -169,7 +250,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _Tile(Icons.policy_outlined, 'Privacy policy', 'How we handle your data', () {
             Navigator.push(context, MaterialPageRoute(builder: (_) => const _PrivacyPlaceholderScreen()));
           }),
-        ], delay: 3),
+        ], delay: 5),
       ]),
     );
   }
@@ -243,7 +324,7 @@ class _IconCircle extends StatelessWidget {
 class _Tile extends StatelessWidget {
   final IconData icon;
   final String title, subtitle;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final bool disabled;
   const _Tile(this.icon, this.title, this.subtitle, this.onTap, {this.disabled = false});
 
@@ -255,7 +336,9 @@ class _Tile extends StatelessWidget {
         leading: _IconCircle(icon, disabled: disabled),
         title: Text(title, style: const TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w600)),
         subtitle: Text(subtitle, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
-        trailing: const Icon(Icons.chevron_right_rounded, size: 18, color: ZapColors.textSecondary),
+        trailing: onTap == null
+            ? null
+            : const Icon(Icons.chevron_right_rounded, size: 18, color: ZapColors.textSecondary),
         onTap: disabled ? null : onTap,
       ),
     );

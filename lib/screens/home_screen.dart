@@ -202,9 +202,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(width: ZapTheme.space3),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('ZapSound', style: TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w700)),
+                  const Text('Charger sounds', style: TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w700)),
                   Text(
-                    _isEnabled ? 'Active — charger sounds will play' : 'Paused — charger sounds are off',
+                    _isEnabled ? 'On — plays when you plug in or unplug' : 'Off — no sounds will play',
                     style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary),
                   ),
                 ])),
@@ -219,9 +219,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
           const Spacer(),
 
-          // Battery ring hero with the zap test button inside
+          // Battery ring hero with the zap test button inside.
+          // Hit area is clipped to the ring's circle: the GestureDetector's
+          // rectangle extends past the ring at the corners, so a plain onTap
+          // would fire on taps visually outside it.
           GestureDetector(
-            onTap: _testCharge,
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (d) {
+              const center = Offset(112, 112);
+              if ((d.localPosition - center).distance <= 112) _testCharge();
+            },
             child: AnimatedBuilder(
               animation: _glowCtrl,
               builder: (_, __) => SizedBox(
@@ -482,7 +489,7 @@ class _PremiumBanner extends StatelessWidget {
           const SizedBox(width: ZapTheme.space3),
           const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('ZapSound Pro', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: ZapTheme.textMd)),
-            Text('30+ sounds · Record your own · No ads', style: TextStyle(color: Colors.white70, fontSize: ZapTheme.textXs)),
+            Text('25+ sounds · Anti-theft alarm · Your voice', style: TextStyle(color: Colors.white70, fontSize: ZapTheme.textXs)),
           ])),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),

@@ -38,11 +38,11 @@ Future<void> _restore() async {
     }
   }
 static const _features = [
-    (Icons.bolt_rounded, '25+ premium sounds',        'Funny, retro, sci-fi & chill packs'),
-    (Icons.mic_rounded, 'Record your own sounds',     'Your voice, any sound you like'),
-    (Icons.block_rounded, 'Zero ads forever',          'Clean experience, always'),
-    (Icons.card_giftcard_rounded, 'All future sound packs free','Every new release included'),
-    (Icons.all_inclusive_rounded, 'Lifetime access',           'Pay once, yours forever'),
+    (Icons.shield_rounded, 'Anti-theft alarm', 'Loud siren + PIN lock if someone unplugs your phone'),
+    (Icons.bolt_rounded, '25+ premium sounds', 'Funny, retro, sci-fi & chill packs'),
+    (Icons.mic_rounded, 'Record your own sounds', 'Your voice, any sound you like'),
+    (Icons.card_giftcard_rounded, 'All future sound packs free', 'Every new release included'),
+    (Icons.all_inclusive_rounded, 'Lifetime access', 'Pay once, yours forever — no subscription'),
   ];
 @override
   Widget build(BuildContext context) {
@@ -73,10 +73,10 @@ static const _features = [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
+                    color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
                   ),
-                  child: const Text('One-time · Lifetime access',
+                  child: const Text('Pay once · Yours forever',
                       style: TextStyle(color: Colors.white70, fontSize: ZapTheme.textSm)),
                 ),
               ]),

@@ -17,6 +17,12 @@ class PrefsService {
   static const _battFullFile    = 'battery_full_file';
   static const _antitheftArmed  = 'antitheft_armed';
   static const _antitheftPin    = 'antitheft_pin';
+  // Volume + quiet hours are also read natively (ZapSoundPlayer) as
+  // flutter.volume_pct / flutter.quiet_* — ints stored as Long on Android.
+  static const _volume       = 'volume_pct';
+  static const _quietEnabled = 'quiet_hours_enabled';
+  static const _quietStart   = 'quiet_start_min';
+  static const _quietEnd     = 'quiet_end_min';
 
   static Future<SharedPreferences> get _p async => SharedPreferences.getInstance();
 
@@ -53,4 +59,27 @@ class PrefsService {
   }
   static Future<void> setAntitheftArmed(bool v)   async => (await _p).setBool(_antitheftArmed, v);
   static Future<void> setAntitheftPin(String v)   async => (await _p).setString(_antitheftPin, v);
+
+  static Future<int>  getVolume()      async => (await _p).getInt(_volume) ?? 100;
+  static Future<void> setVolume(int v) async => (await _p).setInt(_volume, v.clamp(0, 100));
+
+  static Future<bool> isQuietHoursEnabled()        async => (await _p).getBool(_quietEnabled) ?? false;
+  static Future<void> setQuietHoursEnabled(bool v) async => (await _p).setBool(_quietEnabled, v);
+  static Future<int>  getQuietStart()      async => (await _p).getInt(_quietStart) ?? 22 * 60;
+  static Future<int>  getQuietEnd()        async => (await _p).getInt(_quietEnd)   ?? 7 * 60;
+  static Future<void> setQuietStart(int m) async => (await _p).setInt(_quietStart, m);
+  static Future<void> setQuietEnd(int m)   async => (await _p).setInt(_quietEnd, m);
+
+  /// True when quiet hours are enabled and the current time is inside the
+  /// window. The window may wrap past midnight (e.g. 22:00 → 07:00).
+  /// Mirrored natively by ZapSoundPlayer.isQuietNow().
+  static Future<bool> isQuietNow() async {
+    if (!await isQuietHoursEnabled()) return false;
+    final start = await getQuietStart();
+    final end = await getQuietEnd();
+    if (start == end) return false;
+    final now = DateTime.now();
+    final min = now.hour * 60 + now.minute;
+    return start < end ? (min >= start && min < end) : (min >= start || min < end);
+  }
 }
