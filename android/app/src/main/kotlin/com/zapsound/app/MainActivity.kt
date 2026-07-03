@@ -64,19 +64,6 @@ class MainActivity : FlutterActivity() {
                     val pm = getSystemService(POWER_SERVICE) as PowerManager
                     result.success(pm.isIgnoringBatteryOptimizations(packageName))
                 }
-                "hasOverlayPermission" -> result.success(Settings.canDrawOverlays(this))
-                "requestOverlayPermission" -> {
-                    startActivity(
-                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
-                            data = Uri.parse("package:$packageName")
-                        },
-                    )
-                    result.success(null)
-                }
-                "showChargingAnimation" -> {
-                    ChargeAnimActivity.start(this)
-                    result.success(null)
-                }
                 "getBatteryStatus" -> {
                     // ACTION_BATTERY_CHANGED is sticky; passing a null receiver
                     // just reads the last broadcast without registering.

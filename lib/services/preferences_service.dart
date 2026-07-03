@@ -20,8 +20,6 @@ class PrefsService {
   // Volume + quiet hours are also read natively (ZapSoundPlayer) as
   // flutter.volume_pct / flutter.quiet_* — ints stored as Long on Android.
   static const _volume       = 'volume_pct';
-  // Read natively by ZapReceiver as flutter.charging_anim_enabled.
-  static const _chargingAnim = 'charging_anim_enabled';
   static const _quietEnabled = 'quiet_hours_enabled';
   static const _quietStart   = 'quiet_start_min';
   static const _quietEnd     = 'quiet_end_min';
@@ -64,9 +62,6 @@ class PrefsService {
 
   static Future<int>  getVolume()      async => (await _p).getInt(_volume) ?? 100;
   static Future<void> setVolume(int v) async => (await _p).setInt(_volume, v.clamp(0, 100));
-
-  static Future<bool> isChargingAnimEnabled()        async => (await _p).getBool(_chargingAnim) ?? false;
-  static Future<void> setChargingAnimEnabled(bool v) async => (await _p).setBool(_chargingAnim, v);
 
   static Future<bool> isQuietHoursEnabled()        async => (await _p).getBool(_quietEnabled) ?? false;
   static Future<void> setQuietHoursEnabled(bool v) async => (await _p).setBool(_quietEnabled, v);

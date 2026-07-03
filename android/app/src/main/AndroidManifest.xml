@@ -7,9 +7,6 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
-    <!-- Charging animation over the lock screen; also exempts the background
-         activity launch from ZapReceiver. Granted by the user in settings. -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="com.android.vending.BILLING"/>
 
     <application
@@ -38,16 +35,6 @@
             android:exported="false"
             android:launchMode="singleTop"
             android:excludeFromRecents="true"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"/>
-
-        <!-- Full-screen charging animation shown over the lock screen on plug-in -->
-        <activity
-            android:name="com.zapsound.app.ChargeAnimActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"/>
 
