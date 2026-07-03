@@ -19,7 +19,10 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  static const _channel = MethodChannel('com.zapsound.app/charger');
+
   bool _isDark = true, _isPremium = false, _battFullEnabled = false;
+  bool _chargeAnimEnabled = false;
   bool _quietEnabled = false;
   int _quietStart = 22 * 60, _quietEnd = 7 * 60;
   double _volume = 100;
@@ -35,6 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final battFull = await PrefsService.isBatteryFullEnabled();
     final battFullId = await PrefsService.getBatteryFullSound();
     final volume = await PrefsService.getVolume();
+    final chargeAnim = await PrefsService.isChargingAnimEnabled();
     final quietEnabled = await PrefsService.isQuietHoursEnabled();
     final quietStart = await PrefsService.getQuietStart();
     final quietEnd = await PrefsService.getQuietEnd();
@@ -50,11 +54,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _battFullEnabled = battFull;
         _battFullSoundName = '${battSound.emoji} ${battSound.name}';
         _volume = volume.toDouble();
+        _chargeAnimEnabled = chargeAnim;
         _quietEnabled = quietEnabled;
         _quietStart = quietStart;
         _quietEnd = quietEnd;
         _version = info.version;
       });
+    }
+  }
+
+  Future<void> _toggleChargingAnim(bool v) async {
+    setState(() => _chargeAnimEnabled = v);
+    await PrefsService.setChargingAnimEnabled(v);
+    if (!v) return;
+    bool hasPermission = false;
+    try {
+      hasPermission = await _channel.invokeMethod('hasOverlayPermission') as bool? ?? false;
+    } catch (_) {}
+    if (hasPermission) {
+      // Instant preview so the user sees what they just enabled.
+      try { await _channel.invokeMethod('showChargingAnimation'); } catch (_) {}
+      return;
+    }
+    if (!mounted) return;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('One more step'),
+        content: const Text(
+          'To show the charging animation over your lock screen, Android needs '
+          'the "Display over other apps" permission.\n\n'
+          'Tap Continue and switch it on for ZapSound.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not now')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (go == true) {
+      try { await _channel.invokeMethod('requestOverlayPermission'); } catch (_) {}
     }
   }
 
@@ -139,6 +181,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         _Section('Alerts', [
           SwitchListTile(
+            secondary: const _IconCircle(Icons.auto_awesome_rounded),
+            title: const Text('Charging animation', style: TextStyle(fontSize: ZapTheme.textMd)),
+            subtitle: const Text('Full-screen animation when you plug in — works on the lock screen',
+                style: TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
+            value: _chargeAnimEnabled,
+            activeThumbColor: ZapColors.primary,
+            onChanged: _toggleChargingAnim,
+          ),
+          SwitchListTile(
             secondary: const _IconCircle(Icons.battery_full_rounded),
             title: const Text('Battery full alert', style: TextStyle(fontSize: ZapTheme.textMd)),
             subtitle: const Text('Play a sound when charging reaches 100%',
@@ -198,8 +249,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _Section('Background & Reliability', [
           _Tile(Icons.battery_charging_full_rounded, 'Allow background activity',
               'Required so charger sounds play when ZapSound is closed', () async {
-            const channel = MethodChannel('com.zapsound.app/charger');
-            await channel.invokeMethod('requestBatteryOptimizationExemption');
+            await _channel.invokeMethod('requestBatteryOptimizationExemption');
           }),
           _Tile(Icons.smartphone_rounded, 'Some phones need extra setup',
               'Tap for Xiaomi / Oppo / Vivo / Samsung instructions', () {

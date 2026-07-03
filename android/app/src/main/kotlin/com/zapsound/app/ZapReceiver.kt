@@ -43,11 +43,20 @@ class ZapReceiver : BroadcastReceiver() {
         // Sound file names are written by the Dart side on selection; the
         // defaults mirror ZapSoundLibrary's defaults (s1 = power_up, s2 = coin).
         when (intent.action) {
-            Intent.ACTION_POWER_CONNECTED -> ZapSoundPlayer.play(
-                context,
-                fileName   = prefs.getString("flutter.plug_in_file",  "power_up") ?: "power_up",
-                customPath = prefs.getString("flutter.custom_in_path",  null),
-            )
+            Intent.ACTION_POWER_CONNECTED -> {
+                ZapSoundPlayer.play(
+                    context,
+                    fileName   = prefs.getString("flutter.plug_in_file",  "power_up") ?: "power_up",
+                    customPath = prefs.getString("flutter.custom_in_path",  null),
+                )
+                // Full-screen charging animation. canDrawOverlays both gates the
+                // feature and exempts this background activity start.
+                if (prefs.getBoolean("flutter.charging_anim_enabled", false) &&
+                    android.provider.Settings.canDrawOverlays(context)
+                ) {
+                    try { ChargeAnimActivity.start(context) } catch (_: Exception) {}
+                }
+            }
             Intent.ACTION_POWER_DISCONNECTED -> ZapSoundPlayer.play(
                 context,
                 fileName   = prefs.getString("flutter.plug_out_file", "coin") ?: "coin",
