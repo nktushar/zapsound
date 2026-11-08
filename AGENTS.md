@@ -7,13 +7,11 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 ```bash
 flutter pub get          # install dependencies
 flutter run              # run on connected device/emulator
-flutter run -d android   # target Android specifically
-flutter run -d ios       # target iOS specifically
+flutter run -d android   # target Android (the only platform)
 flutter analyze          # lint (uses analysis_options.yaml with flutter_lints)
 flutter test             # run all tests
 flutter test test/widget_test.dart  # run a single test file
 flutter build apk        # build Android release
-flutter build ios        # build iOS release
 ```
 
 ## Architecture

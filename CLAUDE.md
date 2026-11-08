@@ -7,18 +7,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 flutter pub get          # install dependencies
 flutter run              # run on connected device/emulator
-flutter run -d android   # target Android specifically
-flutter run -d ios       # target iOS specifically
+flutter run -d android   # target Android (the only platform)
 flutter analyze          # lint (uses analysis_options.yaml with flutter_lints)
 flutter test             # run all tests
 flutter test test/widget_test.dart  # run a single test file
 flutter build apk        # build Android release
-flutter build ios        # build iOS release
 ```
 
 ## Architecture
 
-ZapSound is a Flutter app that plays a sound when the device charger is plugged in or unplugged, with a battery-full alert and a premium anti-theft unplug alarm. It has a freemium model gated by a single one-time in-app purchase (`zapsound_premium_lifetime`).
+ZapSound is an **Android-only** Flutter app (iOS/desktop/web platform folders removed — iOS cannot detect the charger in the background) that plays a sound when the device charger is plugged in or unplugged, with a battery-full alert and a premium anti-theft unplug alarm. It has a freemium model gated by a single one-time in-app purchase (`zapsound_premium_lifetime`).
 
 ### Layer overview
 
@@ -70,7 +68,7 @@ All native files under `android/app/src/main/kotlin/` in package `com.zapsound.a
 - **`SoundTarget` enum** (`plugIn` / `plugOut` / `batteryFull`) parameterizes `SoundPickerScreen`; the batteryFull target hides the custom-recording row and persists via `setBatteryFullSound(id, file)`.
 - **Anti-theft (premium)** — armed via Home toggle (PIN set on first arm through `showPinSetupDialog`; changeable in Settings → Alerts). Prefs: `antitheft_armed`, `antitheft_pin`. The Dart MethodChannel handler skips the unplug sound while armed; the native receiver handles the siren + PIN screen. Disarms itself after each triggered alarm.
 - **Premium gate** is a boolean in SharedPreferences (`is_premium`). `PurchaseService.init()` must be called before `runApp`. `restoreAndCheck()` polls `isPremium` (10 × 400 ms) after restore instead of a fixed wait. The Home banner and paywall both show the live store price via `getProduct()` (fallback `$2.99`).
-- **Battery status on Home** — `BatteryService.getStatus()` (null on platforms without the channel, e.g. iOS). The hero ring (`_BatteryRingPainter`) shows level with a brand-gradient sweep; refreshed by a 15 s timer plus `BatteryService.chargerEvents`, a `ValueNotifier` bumped by the `main.dart` MethodChannel handler on plug/unplug. "Plugged in" is derived from `plugType` (`isPluggedIn`), not `isCharging`.
+- **Battery status on Home** — `BatteryService.getStatus()` (null if the channel fails). The hero ring (`_BatteryRingPainter`) shows level with a brand-gradient sweep; refreshed by a 15 s timer plus `BatteryService.chargerEvents`, a `ValueNotifier` bumped by the `main.dart` MethodChannel handler on plug/unplug. "Plugged in" is derived from `plugType` (`isPluggedIn`), not `isCharging`.
 - **Previews await real playback**: just_audio's `play()` future completes when the sound ends or `AudioService.stop()` is called — no fixed delays. Tapping an active preview stops it.
 - **Custom sound** (id `custom`) stores a file path in prefs (`custom_in_path` / `custom_out_path`); can be re-recorded or removed in the picker (removal deletes the file and reverts selection to `s1`/`s2` + file mirror).
 - **Master enable toggle** — `zapsound_enabled` pref (default `true`); checked in the `main.dart` handler, `ZapReceiver`, and the battery-full receiver. The Home ring "tap to test" bypasses it (hit area is clipped to the ring's circle via an `onTapUp` distance check — a plain `onTap` would fire on the corners of the 224×224 box).

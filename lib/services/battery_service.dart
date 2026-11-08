@@ -37,7 +37,7 @@ class BatteryService {
         temperature: (res['temperature'] as num?)?.toDouble() ?? -1,
       );
     } catch (_) {
-      // Channel not implemented on this platform (e.g. iOS).
+      // Channel not implemented on this platform (e.g. unit tests).
       return null;
     }
   }
