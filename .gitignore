@@ -48,3 +48,10 @@ app.*.map.json
 /android/key.properties
 /android/app/*.keystore
 /android/app/*.jks
+
+# Android-only project: Flutter tooling regenerates these platform stubs
+/ios/
+/macos/
+/web/
+/linux/
+/windows/
