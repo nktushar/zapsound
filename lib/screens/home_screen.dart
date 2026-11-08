@@ -34,11 +34,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   BatteryStatus? _batt;
   Timer? _battTimer;
   late AnimationController _glowCtrl;
+  // Ripple burst fired by tap-to-test; _burstPlugIn picks its color.
+  late AnimationController _burstCtrl;
+  bool _burstPlugIn = true;
 
   @override
   void initState() {
     super.initState();
     _glowCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..repeat(reverse: true);
+    _burstCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100));
     _load();
     _loadBattery();
     _battTimer = Timer.periodic(const Duration(seconds: 15), (_) => _loadBattery());
@@ -72,7 +76,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     HapticFeedback.mediumImpact();
     final plugIn = !_showCharging;
     final seq = ++_testSeq;
-    setState(() => _testCharging = plugIn);
+    setState(() { _testCharging = plugIn; _burstPlugIn = plugIn; });
+    _burstCtrl.forward(from: 0);
     if (plugIn) {
       await AudioService.onPlugIn();
     } else {
@@ -130,6 +135,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     BatteryService.chargerEvents.removeListener(_loadBattery);
     _battTimer?.cancel();
     _glowCtrl.dispose();
+    _burstCtrl.dispose();
     super.dispose();
   }
 
@@ -241,10 +247,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               if ((d.localPosition - center).distance <= 112) _testCharge();
             },
             child: AnimatedBuilder(
-              animation: _glowCtrl,
+              animation: Listenable.merge([_glowCtrl, _burstCtrl]),
               builder: (_, __) => SizedBox(
                 width: 224, height: 224,
-                child: Stack(alignment: Alignment.center, children: [
+                // Clip.none: the ripples expand past the 224 box.
+                child: Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
+                  if (_burstCtrl.isAnimating)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: _RippleBurstPainter(
+                            t: _burstCtrl.value,
+                            color: _burstPlugIn ? ZapColors.primary : ZapColors.cyan,
+                          ),
+                        ),
+                      ),
+                    ),
                   CustomPaint(
                     size: const Size(224, 224),
                     painter: _BatteryRingPainter(
@@ -253,7 +271,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       glow: _glowCtrl.value,
                     ),
                   ),
-                  Container(
+                  Transform.scale(
+                    scale: 1 + 0.08 * math.sin(math.pi * (_burstCtrl.value / 0.35).clamp(0.0, 1.0)),
+                    child: Container(
                     width: 158, height: 158,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
@@ -293,6 +313,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           ),
                       ]),
                     ),
+                  ),
                   ),
                 ]),
               ),
@@ -383,6 +404,57 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ]),
     );
   }
+}
+
+/// Tap-to-test burst: a soft flash inside the ring plus three staggered
+/// rings expanding outward from its edge and fading. [t] runs 0→1.
+class _RippleBurstPainter extends CustomPainter {
+  final double t;
+  final Color color;
+
+  _RippleBurstPainter({required this.t, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final base = size.width / 2 - 8; // battery ring radius
+
+    // Inner flash, gone by t = 0.35.
+    final flash = (1 - t / 0.35).clamp(0.0, 1.0);
+    if (flash > 0) {
+      canvas.drawCircle(
+        center,
+        base,
+        Paint()
+          ..shader = RadialGradient(colors: [
+            color.withValues(alpha: 0.45 * flash),
+            color.withValues(alpha: 0),
+          ]).createShader(Rect.fromCircle(center: center, radius: base)),
+      );
+    }
+
+    const rings = 3;
+    const stagger = 0.18;
+    const span = 1 - stagger * (rings - 1);
+    for (var i = 0; i < rings; i++) {
+      final local = ((t - i * stagger) / span).clamp(0.0, 1.0);
+      if (local <= 0 || local >= 1) continue;
+      final eased = Curves.easeOutCubic.transform(local);
+      final fade = 1 - local;
+      canvas.drawCircle(
+        center,
+        base + 72 * eased,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5 + 6 * fade
+          ..color = color.withValues(alpha: 0.75 * fade)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2 + 4 * eased),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RippleBurstPainter old) => old.t != t || old.color != color;
 }
 
 class _BatteryRingPainter extends CustomPainter {
