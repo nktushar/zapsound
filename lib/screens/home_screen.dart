@@ -24,7 +24,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String _plugInId  = 's1';
   String _plugOutId = 's2';
   bool   _isPremium = false;
-  bool   _isCharging = false;
+  // Simulated charger state while a tap-to-test is playing; null = show the
+  // real battery state. Must win over _batt, which is non-null on Android.
+  bool?  _testCharging;
+  int    _testSeq = 0;
   bool   _isEnabled = true;
   bool   _antitheftArmed = false;
   String _price = '\$2.99';
@@ -63,14 +66,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   SoundModel _sound(String id) =>
       ZapSoundLibrary.all.firstWhere((s) => s.id == id, orElse: () => ZapSoundLibrary.all.first);
 
+  bool get _showCharging => _testCharging ?? _batt?.isPluggedIn ?? false;
+
   void _testCharge() async {
     HapticFeedback.mediumImpact();
-    setState(() => _isCharging = !_isCharging);
-    if (_isCharging) {
+    final plugIn = !_showCharging;
+    final seq = ++_testSeq;
+    setState(() => _testCharging = plugIn);
+    if (plugIn) {
       await AudioService.onPlugIn();
     } else {
       await AudioService.onPlugOut();
     }
+    // Hold the simulated state briefly, then fall back to the real one —
+    // unless another tap started a newer test meanwhile.
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (mounted && seq == _testSeq) setState(() => _testCharging = null);
   }
 
   void _toggleEnabled(bool v) async {
@@ -140,7 +151,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final plugIn  = _sound(_plugInId);
     final plugOut = _sound(_plugOutId);
-    final charging = _batt?.isPluggedIn ?? _isCharging;
+    final charging = _showCharging;
 
     return Scaffold(
       // The fixed hero/cards layout shouldn't squash when a dialog keyboard opens.
@@ -273,10 +284,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               style: const TextStyle(fontSize: ZapTheme.textXl, fontWeight: FontWeight.w800))
                         else
                           Text(
-                            _isCharging ? 'Charging!' : 'Tap to test',
+                            charging ? 'Charging!' : 'Tap to test',
                             style: TextStyle(
                               fontSize: ZapTheme.textSm,
-                              color: _isCharging ? ZapColors.primary : ZapColors.textSecondary,
+                              color: charging ? ZapColors.primary : ZapColors.textSecondary,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
