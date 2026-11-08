@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../services/purchase_service.dart';
@@ -11,32 +12,81 @@ class PremiumScreen extends StatefulWidget {
 class _PremiumScreenState extends State<PremiumScreen> {
   bool _loading = false, _restoring = false;
   String _price = '\$2.99';
-@override
-  void initState() { super.initState(); _loadPrice(); }
-Future<void> _loadPrice() async {
+  StreamSubscription<PurchaseEvent>? _purchaseSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrice();
+    _purchaseSub = PurchaseService.events.listen(_onPurchaseEvent);
+  }
+
+  @override
+  void dispose() {
+    _purchaseSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadPrice() async {
     final p = await PurchaseService.getProduct();
     if (p != null && mounted) setState(() => _price = p.price);
   }
-Future<void> _buy() async {
-    setState(() => _loading = true);
-    try {
-      await PurchaseService.buy();
-    } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Purchase failed. Try again.')));
+
+  void _toast(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  // Only react while a buy is in flight; restore has its own feedback.
+  void _onPurchaseEvent(PurchaseEvent e) {
+    if (!mounted || !_loading) return;
+    setState(() => _loading = false);
+    switch (e.outcome) {
+      case PurchaseOutcome.purchased:
+        _toast('Welcome to ZapSound Pro! ⚡');
+        Navigator.pop(context, true);
+      case PurchaseOutcome.pending:
+        _toast('Payment pending — Pro unlocks automatically once it completes.');
+      case PurchaseOutcome.canceled:
+        break;
+      case PurchaseOutcome.error:
+        _toast('Purchase failed${e.message != null ? ': ${e.message}' : ''}. Try again.');
     }
-    if (mounted) setState(() => _loading = false);
   }
-Future<void> _restore() async {
+
+  Future<void> _buy() async {
+    setState(() => _loading = true);
+    BuyStart start;
+    try {
+      start = await PurchaseService.buy();
+    } catch (_) {
+      start = BuyStart.failed;
+    }
+    if (!mounted) return;
+    switch (start) {
+      case BuyStart.launched:
+        return; // outcome arrives via _onPurchaseEvent
+      case BuyStart.alreadyOwned:
+        setState(() => _loading = false);
+        _toast('You already own Pro — restored!');
+        Navigator.pop(context, true);
+      case BuyStart.storeUnavailable:
+        setState(() => _loading = false);
+        _toast('Google Play is unavailable. Check your connection and try again.');
+      case BuyStart.failed:
+        setState(() => _loading = false);
+        _toast('Couldn\'t start the purchase. Try again.');
+    }
+  }
+
+  Future<void> _restore() async {
     setState(() => _restoring = true);
     final ok = await PurchaseService.restoreAndCheck();
     if (mounted) {
       setState(() => _restoring = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ok ? 'Premium restored!' : 'No purchase found.')));
-      if (ok) Navigator.pop(context);
+      _toast(ok ? 'Premium restored!' : 'No purchase found.');
+      if (ok) Navigator.pop(context, true);
     }
   }
+
 static const _features = [
     (Icons.shield_rounded, 'Anti-theft alarm', 'Loud siren + PIN lock if someone unplugs your phone'),
     (Icons.bolt_rounded, '25+ premium sounds', 'Funny, retro, sci-fi & chill packs'),

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
 import '../models/sound_model.dart';
 import '../services/audio_service.dart';
@@ -11,6 +12,29 @@ import '../services/purchase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pin_dialog.dart';
 import 'sound_picker_screen.dart';
+
+const _packageId = 'com.zapsound.app';
+const _playStoreUrl = 'https://play.google.com/store/apps/details?id=$_packageId';
+// Served by GitHub Pages from docs/ on main.
+const _privacyPolicyUrl = 'https://nktushar.github.io/zapsound/privacy_policy.html';
+
+Future<void> _openUrl(Uri uri) async {
+  try {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {}
+}
+
+/// Opens the Play Store app's listing (where the review box is), falling back
+/// to the web listing if the Play Store app isn't installed.
+Future<void> _rateApp() async {
+  try {
+    if (await launchUrl(Uri.parse('market://details?id=$_packageId'),
+        mode: LaunchMode.externalApplication)) {
+      return;
+    }
+  } catch (_) {}
+  await _openUrl(Uri.parse(_playStoreUrl));
+}
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -242,14 +266,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         _Section('About', [
           _Tile(Icons.info_outline_rounded, 'Version', 'ZapSound $_version', null),
-          _Tile(Icons.star_outline_rounded, 'Rate ZapSound', 'Available after release', () {}, disabled: true),
+          const _Tile(Icons.star_outline_rounded, 'Rate ZapSound', 'Enjoying it? Leave a review', _rateApp),
           _Tile(Icons.share_outlined, 'Share with friends', 'Tell someone about ZapSound', () {
-            // TODO: add Play Store link after release
-            Share.share('Check out ZapSound — it plays a fun sound when you plug in or unplug your charger!');
+            Share.share(
+              'Check out ZapSound — it plays a fun sound when you plug in or unplug your charger! $_playStoreUrl',
+            );
           }),
-          _Tile(Icons.policy_outlined, 'Privacy policy', 'How we handle your data', () {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const _PrivacyPlaceholderScreen()));
-          }),
+          _Tile(Icons.policy_outlined, 'Privacy policy', 'How we handle your data',
+              () => _openUrl(Uri.parse(_privacyPolicyUrl))),
         ], delay: 5),
       ]),
     );
@@ -304,12 +328,11 @@ class _Section extends StatelessWidget {
 
 class _IconCircle extends StatelessWidget {
   final IconData icon;
-  final bool disabled;
-  const _IconCircle(this.icon, {this.disabled = false});
+  const _IconCircle(this.icon);
 
   @override
   Widget build(BuildContext context) {
-    final color = disabled ? ZapColors.textSecondary : ZapColors.primary;
+    const color = ZapColors.primary;
     return Container(
       width: 38, height: 38,
       decoration: BoxDecoration(
@@ -325,40 +348,18 @@ class _Tile extends StatelessWidget {
   final IconData icon;
   final String title, subtitle;
   final VoidCallback? onTap;
-  final bool disabled;
-  const _Tile(this.icon, this.title, this.subtitle, this.onTap, {this.disabled = false});
+  const _Tile(this.icon, this.title, this.subtitle, this.onTap);
 
   @override
   Widget build(BuildContext context) {
-    return Opacity(
-      opacity: disabled ? 0.5 : 1,
-      child: ListTile(
-        leading: _IconCircle(icon, disabled: disabled),
+    return ListTile(
+        leading: _IconCircle(icon),
         title: Text(title, style: const TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w600)),
         subtitle: Text(subtitle, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
         trailing: onTap == null
             ? null
             : const Icon(Icons.chevron_right_rounded, size: 18, color: ZapColors.textSecondary),
-        onTap: disabled ? null : onTap,
-      ),
+        onTap: onTap,
     );
   }
-}
-
-class _PrivacyPlaceholderScreen extends StatelessWidget {
-  const _PrivacyPlaceholderScreen();
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Privacy Policy')),
-    body: const Padding(
-      padding: EdgeInsets.all(ZapTheme.space4),
-      child: Text(
-        'ZapSound does not collect or transmit personal data. All sounds, '
-        'recordings, and preferences are stored locally on your device.\n\n'
-        'A full hosted privacy policy will be linked here after release.',
-        style: TextStyle(fontSize: ZapTheme.textMd),
-      ),
-    ),
-  );
 }

@@ -94,6 +94,9 @@ class ZapReceiver : BroadcastReceiver() {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOngoing(true)
+            // Tapping opens the PIN screen too — the fallback when the
+            // full-screen intent is denied and this shows as a heads-up.
+            .setContentIntent(fullScreen)
             .setFullScreenIntent(fullScreen, true)
             .build()
         nm.notify(2002, notification)

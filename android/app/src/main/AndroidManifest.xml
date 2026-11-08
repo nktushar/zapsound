@@ -2,7 +2,7 @@
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
@@ -51,12 +51,19 @@
             </intent-filter>
         </receiver>
 
-        <!-- Keeps the process alive so ZapReceiver reliably receives charger broadcasts -->
+        <!-- Keeps the process alive so ZapReceiver reliably receives charger broadcasts.
+             specialUse, not dataSync: on Android 15+ dataSync is capped at 6 h per
+             24 h and can't be started from BOOT_COMPLETED. specialUse requires a
+             Play Console declaration; the subtype below is shown to reviewers. -->
         <service
             android:name="com.zapsound.app.ZapForegroundService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync"/>
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Listens for charger plug/unplug and battery-full broadcasts (only deliverable to a runtime-registered receiver) to play the user's chosen sound or anti-theft alarm."/>
+        </service>
 
         <meta-data android:name="flutterEmbedding" android:value="2"/>
     </application>

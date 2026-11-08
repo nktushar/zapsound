@@ -15,7 +15,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   await PurchaseService.init();
-  unawaited(PurchaseService.restoreSilently());
+  unawaited(PurchaseService.syncWithStore());
   final isDark = await PrefsService.isDarkMode();
   final isOnboarded = await PrefsService.isOnboarded();
 

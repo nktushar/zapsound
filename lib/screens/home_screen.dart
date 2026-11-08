@@ -114,10 +114,35 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           const SnackBar(content: Text('Armed — unplugging will sound the alarm.')),
         );
       }
+      if (!await BatteryService.canUseFullScreenIntent() && mounted) {
+        await _askFullScreenPermission();
+      }
     } else {
       await PrefsService.setAntitheftArmed(false);
     }
     if (mounted) setState(() => _antitheftArmed = v);
+  }
+
+  /// Without the full-screen-intent permission the siren still sounds, but
+  /// the PIN screen only appears as a notification instead of over the lock
+  /// screen.
+  Future<void> _askFullScreenPermission() async {
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Allow lock-screen alarm'),
+        content: const Text(
+          'To show the PIN screen over your lock screen when the alarm goes off, '
+          'allow ZapSound to use full-screen notifications.\n\n'
+          'Without it the siren still sounds, but you\'ll need to tap the notification to stop it.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not now')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Open settings')),
+        ],
+      ),
+    );
+    if (open == true) await BatteryService.openFullScreenIntentSettings();
   }
 
   void _goToPicker(bool isPlugIn) {

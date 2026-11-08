@@ -26,6 +26,22 @@ class BatteryService {
   /// battery info the moment the charger is plugged/unplugged.
   static final chargerEvents = ValueNotifier<int>(0);
 
+  /// Android 14+ may deny full-screen intents, which keeps the anti-theft PIN
+  /// screen from appearing over the lock screen. True when allowed or unknown.
+  static Future<bool> canUseFullScreenIntent() async {
+    try {
+      return await _channel.invokeMethod<bool>('canUseFullScreenIntent') ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  static Future<void> openFullScreenIntentSettings() async {
+    try {
+      await _channel.invokeMethod('openFullScreenIntentSettings');
+    } catch (_) {}
+  }
+
   static Future<BatteryStatus?> getStatus() async {
     try {
       final res = await _channel.invokeMethod<Map<Object?, Object?>>('getBatteryStatus');

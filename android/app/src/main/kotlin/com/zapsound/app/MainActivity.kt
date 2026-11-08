@@ -2,6 +2,7 @@ package com.zapsound.app
 
 import android.Manifest
 import android.app.AlertDialog
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -85,6 +86,31 @@ class MainActivity : FlutterActivity() {
                         },
                         "temperature" to if (temp >= 0) temp / 10.0 else -1.0,
                     ))
+                }
+                // Android 14+: Play revokes USE_FULL_SCREEN_INTENT by default for
+                // non-alarm/calling apps, which stops the anti-theft PIN screen
+                // from popping over the lock screen (the siren still sounds).
+                "canUseFullScreenIntent" -> {
+                    result.success(
+                        Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+                            getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
+                    )
+                }
+                "openFullScreenIntentSettings" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        try {
+                            startActivity(Intent(
+                                Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                                Uri.parse("package:$packageName"),
+                            ))
+                        } catch (_: Exception) {
+                            startActivity(Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:$packageName"),
+                            ))
+                        }
+                    }
+                    result.success(null)
                 }
                 else -> result.notImplemented()
             }
