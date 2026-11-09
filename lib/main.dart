@@ -16,7 +16,7 @@ void main() async {
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   await PurchaseService.init();
   unawaited(PurchaseService.syncWithStore());
-  final isDark = await PrefsService.isDarkMode();
+  final themeMode = parseThemeMode(await PrefsService.getThemeMode());
   final isOnboarded = await PrefsService.isOnboarded();
 
   // Foreground backup: native side notifies us of charger state changes
@@ -37,13 +37,19 @@ void main() async {
     }
   });
 
-  runApp(ZapSoundApp(isDark: isDark, isOnboarded: isOnboarded));
+  runApp(ZapSoundApp(themeMode: themeMode, isOnboarded: isOnboarded));
 }
 
+ThemeMode parseThemeMode(String v) => switch (v) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      _ => ThemeMode.system,
+    };
+
 class ZapSoundApp extends StatefulWidget {
-  final bool isDark;
+  final ThemeMode themeMode;
   final bool isOnboarded;
-  const ZapSoundApp({super.key, required this.isDark, required this.isOnboarded});
+  const ZapSoundApp({super.key, required this.themeMode, required this.isOnboarded});
 
   static _ZapSoundAppState? of(BuildContext ctx) =>
       ctx.findAncestorStateOfType<_ZapSoundAppState>();
@@ -53,17 +59,17 @@ class ZapSoundApp extends StatefulWidget {
 }
 
 class _ZapSoundAppState extends State<ZapSoundApp> {
-  late final ValueNotifier<bool> _themeNotifier;
+  late final ValueNotifier<ThemeMode> _themeNotifier;
   late bool _isOnboarded;
 
   @override
   void initState() {
     super.initState();
-    _themeNotifier = ValueNotifier(widget.isDark);
+    _themeNotifier = ValueNotifier(widget.themeMode);
     _isOnboarded = widget.isOnboarded;
   }
 
-  void setDark(bool v) => _themeNotifier.value = v;
+  void setThemeMode(ThemeMode m) => _themeNotifier.value = m;
 
   @override
   void dispose() {
@@ -73,14 +79,14 @@ class _ZapSoundAppState extends State<ZapSoundApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
+    return ValueListenableBuilder<ThemeMode>(
       valueListenable: _themeNotifier,
-      builder: (_, isDark, __) => MaterialApp(
+      builder: (_, mode, __) => MaterialApp(
         title: 'ZapSound',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+        themeMode: mode,
         home: _isOnboarded ? const HomeScreen() : const OnboardingScreen(),
       ),
     );

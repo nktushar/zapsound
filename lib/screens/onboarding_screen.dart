@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../services/preferences_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/sound_widgets.dart';
 import 'home_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -17,30 +17,29 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   static const _pages = [
     _PageData(
-      icon: Icons.bolt_rounded,
-      title: 'Welcome to ZapSound',
-      subtitle: 'Your charger just got a personality',
+      title: 'Hear when your phone starts charging',
+      body: 'ZapSound plays a short sound the moment you plug in or unplug, so you know the cable actually connected.',
+      visual: _Visual.moments,
     ),
     _PageData(
-      icon: Icons.music_note_rounded,
-      title: 'Pick your sounds',
-      subtitle: '30+ fun sounds for plug and unplug — or record your own',
+      title: 'Tap a sound to hear it',
+      body: 'Pick from the library or record your own. Whatever you tap is used right away.',
+      visual: _Visual.pads,
     ),
     _PageData(
-      icon: Icons.power_rounded,
-      title: 'Works automatically',
-      subtitle: 'Sounds play the moment you plug in, even when the app is closed',
+      title: 'Works with the app closed',
+      body: 'Android will ask for a couple of permissions next. Allow them so ZapSound keeps listening in the background.',
+      visual: _Visual.background,
     ),
   ];
 
+  bool get _isLast => _page == _pages.length - 1;
+
   void _next() {
-    if (_page < _pages.length - 1) {
-      _controller.nextPage(
-        duration: const Duration(milliseconds: 450),
-        curve: Curves.easeInOutCubic,
-      );
-    } else {
+    if (_isLast) {
       _finish();
+    } else {
+      _controller.nextPage(duration: const Duration(milliseconds: 420), curve: ZapTheme.emphasized);
     }
   }
 
@@ -49,12 +48,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
-        pageBuilder: (_, animation, __) => const HomeScreen(),
+        pageBuilder: (_, __, ___) => const HomeScreen(),
         transitionsBuilder: (_, animation, __, child) => FadeTransition(
-          opacity: animation,
-          child: child,
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: ScaleTransition(
+            scale: Tween(begin: 0.98, end: 1.0).animate(CurvedAnimation(parent: animation, curve: ZapTheme.emphasized)),
+            child: child,
+          ),
         ),
-        transitionDuration: const Duration(milliseconds: 400),
+        transitionDuration: const Duration(milliseconds: 450),
       ),
     );
   }
@@ -67,207 +69,226 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isLast = _page == _pages.length - 1;
-
+    final z = context.zap;
     return Scaffold(
-      body: Stack(children: [
-        const AuraBackground(),
-        SafeArea(
-        child: Column(
-          children: [
-            // Skip button
-            Align(
-              alignment: Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.only(right: ZapTheme.space4, top: ZapTheme.space3),
-                child: AnimatedOpacity(
-                  opacity: isLast ? 0.0 : 1.0,
-                  duration: const Duration(milliseconds: 200),
-                  child: TextButton(
-                    onPressed: isLast ? null : _finish,
-                    child: const Text(
-                      'Skip',
-                      style: TextStyle(color: ZapColors.textSecondary, fontSize: ZapTheme.textSm),
+      body: SafeArea(
+        child: Column(children: [
+          // Step bar + skip
+          Padding(
+            padding: const EdgeInsets.fromLTRB(ZapTheme.space5, ZapTheme.space3, ZapTheme.space2, 0),
+            child: Row(children: [
+              for (var i = 0; i < _pages.length; i++) ...[
+                Expanded(
+                  child: AnimatedContainer(
+                    duration: ZapTheme.medium,
+                    curve: ZapTheme.emphasized,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: i <= _page ? z.ink : z.surfaceHigh,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-              ),
-            ),
-
-            // Pages
-            Expanded(
-              child: PageView.builder(
-                controller: _controller,
-                itemCount: _pages.length,
-                onPageChanged: (i) => setState(() => _page = i),
-                itemBuilder: (_, i) => _OnboardingPage(
-                  data: _pages[i],
-                  isDark: isDark,
+                if (i < _pages.length - 1) const SizedBox(width: 6),
+              ],
+              const SizedBox(width: ZapTheme.space2),
+              AnimatedOpacity(
+                opacity: _isLast ? 0 : 1,
+                duration: ZapTheme.fast,
+                child: TextButton(
+                  onPressed: _isLast ? null : _finish,
+                  style: TextButton.styleFrom(foregroundColor: z.inkMuted),
+                  child: const Text('Skip'),
                 ),
               ),
+            ]),
+          ),
+
+          Expanded(
+            child: PageView.builder(
+              controller: _controller,
+              itemCount: _pages.length,
+              onPageChanged: (i) => setState(() => _page = i),
+              itemBuilder: (_, i) => _OnboardingPage(data: _pages[i], controller: _controller, index: i),
             ),
+          ),
 
-            // Dot indicators
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(
-                _pages.length,
-                (i) => AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  width: _page == i ? 22 : 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: _page == i
-                        ? ZapColors.primary
-                        : ZapColors.primary.withValues(alpha: 0.25),
-                    borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: ZapTheme.space6),
-
-            // Action button
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
-              child: Container(
-                width: double.infinity,
-                height: 56,
-                decoration: BoxDecoration(
-                  gradient: ZapGradients.brand,
-                  borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
-                  boxShadow: [
-                    BoxShadow(color: ZapColors.primary.withValues(alpha: 0.35), blurRadius: 18, offset: const Offset(0, 6)),
-                  ],
-                ),
-                child: ElevatedButton(
-                  onPressed: _next,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
-                    ),
-                  ),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 250),
-                    child: Text(
-                      isLast ? 'Get Started' : 'Next',
-                      key: ValueKey(isLast),
-                      style: const TextStyle(
-                        fontSize: ZapTheme.textMd,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: ZapTheme.space8),
-          ],
-        ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(ZapTheme.space5, 0, ZapTheme.space5, ZapTheme.space5),
+            child: ZapPrimaryButton(label: _isLast ? 'Get started' : 'Continue', onPressed: _next),
+          ),
+        ]),
       ),
-      ]),
     );
   }
 }
 
+enum _Visual { moments, pads, background }
+
 class _PageData {
-  final IconData icon;
   final String title;
-  final String subtitle;
-  const _PageData({required this.icon, required this.title, required this.subtitle});
+  final String body;
+  final _Visual visual;
+  const _PageData({required this.title, required this.body, required this.visual});
 }
 
 class _OnboardingPage extends StatelessWidget {
   final _PageData data;
-  final bool isDark;
-  const _OnboardingPage({required this.data, required this.isDark});
+  final PageController controller;
+  final int index;
+  const _OnboardingPage({required this.data, required this.controller, required this.index});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space8),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Emoji blob
-          Container(
-            width: 148,
-            height: 148,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  ZapColors.primary.withValues(alpha: 0.20),
-                  ZapColors.cyan.withValues(alpha: 0.14),
-                ],
-              ),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.12 : 0.5),
-                width: 1.5,
-              ),
-            ),
-            child: Center(
-              child: ShaderMask(
-                shaderCallback: (r) => ZapGradients.brand.createShader(r),
-                child: Icon(
-                  data.icon,
-                  size: 64,
-                  color: Colors.white,
+    final z = context.zap;
+    // Parallax: the visual moves slower than the page, text slightly faster.
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (_, __) {
+        final page = controller.hasClients && controller.position.haveDimensions
+            ? (controller.page ?? controller.initialPage.toDouble())
+            : 0.0;
+        final delta = (index - page).clamp(-1.0, 1.0);
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Transform.translate(
+                offset: Offset(-delta * 60, 0),
+                child: Opacity(
+                  opacity: (1 - delta.abs()).clamp(0.0, 1.0),
+                  child: Center(child: _buildVisual(context)),
                 ),
               ),
             ),
-          )
-              .animate()
-              .scale(
-                begin: const Offset(0.6, 0.6),
-                end: const Offset(1.0, 1.0),
-                duration: 550.ms,
-                curve: Curves.elasticOut,
-              )
-              .fadeIn(duration: 300.ms),
-
-          const SizedBox(height: ZapTheme.space8),
-
-          Text(
-            data.title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              height: 1.2,
+            Transform.translate(
+              offset: Offset(delta * 30, 0),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(data.title, style: zapDisplay(34, weight: FontWeight.w800, color: z.ink, height: 1.05)),
+                const SizedBox(height: ZapTheme.space3),
+                Text(data.body, style: TextStyle(fontSize: ZapTheme.textMd, height: 1.5, color: z.inkMuted)),
+                const SizedBox(height: ZapTheme.space8),
+              ]),
             ),
-          )
-              .animate()
-              .fadeIn(delay: 150.ms, duration: 400.ms)
-              .slideY(begin: 0.2, end: 0, delay: 150.ms, duration: 400.ms, curve: Curves.easeOut),
+          ]),
+        );
+      },
+    );
+  }
 
-          const SizedBox(height: ZapTheme.space3),
-
-          Text(
-            data.subtitle,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: ZapTheme.textMd,
-              color: ZapColors.textSecondary,
-              height: 1.5,
+  Widget _buildVisual(BuildContext context) {
+    final z = context.zap;
+    switch (data.visual) {
+      case _Visual.moments:
+        return SizedBox(
+          width: 300,
+          height: 240,
+          child: Stack(children: [
+            Positioned(
+              left: 0,
+              top: 10,
+              child: Transform.rotate(
+                angle: -0.08,
+                child: _MiniTile(hue: z.charge, icon: Icons.power_rounded, label: 'When plugged in', name: 'Power Up'),
+              ),
             ),
-          )
-              .animate()
-              .fadeIn(delay: 260.ms, duration: 400.ms)
-              .slideY(begin: 0.2, end: 0, delay: 260.ms, duration: 400.ms, curve: Curves.easeOut),
-        ],
-      ),
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Transform.rotate(
+                angle: 0.07,
+                child: _MiniTile(
+                    hue: z.release, icon: Icons.power_off_rounded, label: 'When unplugged', name: 'Coin Collect'),
+              ),
+            ),
+          ]),
+        );
+      case _Visual.pads:
+        final names = ['Power Up', 'Ding!', 'Level Up!', 'Lightsaber', 'Marimba', 'Airhorn'];
+        return SizedBox(
+          width: 320,
+          child: GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: 1.9,
+            children: [
+              for (var i = 0; i < names.length; i++)
+                IgnorePointer(
+                  child: SoundPad(
+                    name: names[i],
+                    icon: Icons.music_note_rounded,
+                    hue: z.charge,
+                    selected: i == 0,
+                    playing: i == 3,
+                    locked: i >= 2,
+                    onTap: () {},
+                  ),
+                ),
+            ],
+          ),
+        );
+      case _Visual.background:
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 340),
+          child: ZapGroup(children: [
+            ZapItem(
+              icon: Icons.notifications_none_rounded,
+              hue: z.full,
+              title: 'Allow notifications',
+              subtitle: 'A quiet notification keeps ZapSound running',
+            ),
+            ZapItem(
+              icon: Icons.battery_saver_outlined,
+              hue: z.charge,
+              title: 'Allow background activity',
+              subtitle: 'So Android doesn\'t pause it to save battery',
+            ),
+            ZapItem(
+              icon: Icons.mic_none_rounded,
+              hue: z.release,
+              title: 'Allow microphone',
+              subtitle: 'Only used when you record your own sound',
+            ),
+          ]),
+        );
+    }
+  }
+}
+
+class _MiniTile extends StatelessWidget {
+  final ZapHue hue;
+  final IconData icon;
+  final String label, name;
+  const _MiniTile({required this.hue, required this.icon, required this.label, required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 168,
+      height: 168,
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 16),
+      decoration: BoxDecoration(color: hue.container, borderRadius: BorderRadius.circular(ZapTheme.radiusTile)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(icon, size: 24, color: hue.onContainer),
+          const Spacer(),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(color: hue.onContainer, shape: BoxShape.circle),
+            child: Icon(Icons.play_arrow_rounded, size: 22, color: hue.container),
+          ),
+        ]),
+        const Spacer(),
+        Text(label,
+            style: TextStyle(
+                fontSize: 12.5, fontWeight: FontWeight.w600, color: hue.onContainer.withValues(alpha: 0.75))),
+        const SizedBox(height: 2),
+        Text(name, style: zapDisplay(22, color: hue.onContainer, height: 1.05)),
+      ]),
     );
   }
 }

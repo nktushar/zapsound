@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import '../services/recording_service.dart';
 import '../services/audio_service.dart';
 import '../services/preferences_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/sound_widgets.dart';
 
-const int _kWaveformBars = 28;
+const int _kWaveformBars = 36;
 const double _kMinDb = -45.0;
+const int _kMaxSeconds = 10;
 
 class RecordSoundScreen extends StatefulWidget {
   final bool isPlugIn;
@@ -18,33 +20,19 @@ class RecordSoundScreen extends StatefulWidget {
   State<RecordSoundScreen> createState() => _RecordSoundScreenState();
 }
 
-class _RecordSoundScreenState extends State<RecordSoundScreen> with SingleTickerProviderStateMixin {
+class _RecordSoundScreenState extends State<RecordSoundScreen> {
   bool _recording = false;
   bool _playing = false;
   String? _recordedPath;
   String? _error;
 
-  late final AnimationController _pulseController;
   StreamSubscription<Amplitude>? _amplitudeSub;
   final List<double> _levels = List.filled(_kWaveformBars, 0.0);
 
   Timer? _elapsedTimer;
   int _elapsedSeconds = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-  }
-
-  String get _elapsedLabel {
-    final m = _elapsedSeconds ~/ 60;
-    final s = _elapsedSeconds % 60;
-    return '${m.toString().padLeft(1, '0')}:${s.toString().padLeft(2, '0')}';
-  }
+  String get _elapsedLabel => '0:${_elapsedSeconds.toString().padLeft(2, '0')}';
 
   void _pushLevel(double v) {
     setState(() {
@@ -53,21 +41,26 @@ class _RecordSoundScreenState extends State<RecordSoundScreen> with SingleTicker
     });
   }
 
+  Future<void> _stopRecording() async {
+    final path = await RecordingService.stop();
+    _amplitudeSub?.cancel();
+    _elapsedTimer?.cancel();
+    if (!mounted) return;
+    HapticFeedback.lightImpact();
+    setState(() {
+      _recording = false;
+      _recordedPath = path;
+    });
+  }
+
   Future<void> _toggleRecord() async {
-    if (_recording) {
-      final path = await RecordingService.stop();
-      _amplitudeSub?.cancel();
-      _elapsedTimer?.cancel();
-      setState(() {
-        _recording = false;
-        _recordedPath = path;
-      });
-      return;
-    }
+    if (_recording) return _stopRecording();
+    if (_playing) await AudioService.stop();
     if (!await RecordingService.hasPermission()) {
-      setState(() => _error = 'Microphone permission is required to record.');
+      setState(() => _error = 'ZapSound needs microphone access to record. Allow it in your phone\'s app settings.');
       return;
     }
+    HapticFeedback.mediumImpact();
     setState(() {
       _error = null;
       _recordedPath = null;
@@ -83,6 +76,7 @@ class _RecordSoundScreenState extends State<RecordSoundScreen> with SingleTicker
     });
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() => _elapsedSeconds++);
+      if (_elapsedSeconds >= _kMaxSeconds) _stopRecording();
     });
   }
 
@@ -104,9 +98,11 @@ class _RecordSoundScreenState extends State<RecordSoundScreen> with SingleTicker
     if (widget.isPlugIn) {
       await PrefsService.setCustomIn(finalPath);
       await PrefsService.setPlugIn('custom');
+      await PrefsService.setPlugInFile('custom');
     } else {
       await PrefsService.setCustomOut(finalPath);
       await PrefsService.setPlugOut('custom');
+      await PrefsService.setPlugOutFile('custom');
     }
     if (mounted) Navigator.pop(context, true);
   }
@@ -114,133 +110,142 @@ class _RecordSoundScreenState extends State<RecordSoundScreen> with SingleTicker
   @override
   void dispose() {
     if (_recording) RecordingService.stop();
+    if (_playing) AudioService.stop();
     _amplitudeSub?.cancel();
     _elapsedTimer?.cancel();
-    _pulseController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final z = context.zap;
+    final hasTake = _recordedPath != null && !_recording;
+    final status = _recording
+        ? 'Recording — tap to stop'
+        : hasTake
+            ? 'Listen back, then save or record again'
+            : 'Tap the button and make your sound';
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.isPlugIn ? 'Record Plug-in Sound' : 'Record Unplug Sound',
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
-        ),
-      ),
-      body: Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          SizedBox(
-            width: 220,
-            height: 220,
-            child: Stack(alignment: Alignment.center, children: [
-              if (_recording)
-                AnimatedBuilder(
-                  animation: _pulseController,
-                  builder: (_, __) {
-                    final scale = 1.0 + _pulseController.value * 0.35;
-                    final opacity = 1.0 - _pulseController.value;
-                    return Transform.scale(
-                      scale: scale,
-                      child: Container(
-                        width: 140,
-                        height: 140,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.red.withValues(alpha: opacity * 0.35),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              _buildWaveform(),
-              GestureDetector(
-                onTap: _toggleRecord,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _recording ? Colors.red : ZapColors.primary,
-                    boxShadow: [
-                      BoxShadow(
-                        color: (_recording ? Colors.red : ZapColors.primary).withValues(alpha: 0.4),
-                        blurRadius: 20,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    _recording ? Icons.stop_rounded : Icons.mic_rounded,
-                    color: Colors.white,
-                    size: 48,
+      appBar: AppBar(title: Text(widget.isPlugIn ? 'Record plug-in sound' : 'Record unplug sound')),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(ZapTheme.space5, ZapTheme.space2, ZapTheme.space5, ZapTheme.space5),
+          child: Column(children: [
+            Text(
+              'Short and sharp works best — one to three seconds. Recording stops at $_kMaxSeconds seconds.',
+              style: TextStyle(fontSize: ZapTheme.textSm, color: z.inkMuted, height: 1.45),
+            ),
+            const Spacer(),
+            Text(
+              _elapsedLabel,
+              style: zapDisplay(72, weight: FontWeight.w700, color: _recording ? z.danger : z.ink, height: 1)
+                  .copyWith(fontFeatures: ZapTheme.tabular),
+            ),
+            const SizedBox(height: ZapTheme.space5),
+            SizedBox(height: 96, child: _buildWaveform(z)),
+            const SizedBox(height: ZapTheme.space5),
+            AnimatedSwitcher(
+              duration: ZapTheme.fast,
+              child: Text(status,
+                  key: ValueKey(status),
+                  style: TextStyle(fontSize: ZapTheme.textSm, fontWeight: FontWeight.w600, color: z.inkMuted)),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: ZapTheme.space3),
+              Text(_error!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: z.danger, fontSize: ZapTheme.textSm, height: 1.4)),
+            ],
+            const Spacer(),
+
+            // Controls: play back · record/stop · (balance)
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              SizedBox(
+                width: 72,
+                child: AnimatedOpacity(
+                  duration: ZapTheme.fast,
+                  opacity: hasTake ? 1 : 0,
+                  child: IgnorePointer(
+                    ignoring: !hasTake,
+                    child: PlayButton(playing: _playing, onPressed: _preview, size: 52),
                   ),
                 ),
               ),
+              const SizedBox(width: ZapTheme.space5),
+              _RecordButton(recording: _recording, onTap: _toggleRecord),
+              const SizedBox(width: ZapTheme.space5),
+              const SizedBox(width: 72),
             ]),
-          ),
-          const SizedBox(height: ZapTheme.space4),
-          Text(
-            _recording
-                ? 'Recording $_elapsedLabel'
-                : (_recordedPath == null ? 'Tap to record' : 'Recorded!'),
-            style: const TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w600),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: ZapTheme.space2),
-            Text(_error!, style: const TextStyle(color: Colors.red, fontSize: ZapTheme.textSm)),
-          ],
-          if (_recordedPath != null && !_recording) ...[
-            const SizedBox(height: ZapTheme.space4),
-            TextButton.icon(
-              onPressed: _preview,
-              icon: Icon(_playing ? Icons.stop_rounded : Icons.play_arrow_rounded),
-              label: Text(_playing ? 'Playing...' : 'Preview'),
-            ).animate().fadeIn(duration: 250.ms).slideY(begin: 0.2, end: 0),
-            const SizedBox(height: ZapTheme.space4),
-            SizedBox(
-              width: 200,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _save,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ZapColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ZapTheme.radiusLg)),
-                ),
-                child: const Text('Save & Use', style: TextStyle(fontWeight: FontWeight.w700)),
-              ),
-            ).animate().fadeIn(duration: 250.ms, delay: 80.ms).slideY(begin: 0.2, end: 0),
-          ],
-        ]),
+            const SizedBox(height: ZapTheme.space6),
+            AnimatedSize(
+              duration: ZapTheme.medium,
+              curve: ZapTheme.emphasized,
+              child: hasTake
+                  ? ZapPrimaryButton(label: 'Use this sound', icon: Icons.check_rounded, onPressed: _save)
+                  : const SizedBox(width: double.infinity, height: 54),
+            ),
+          ]),
+        ),
       ),
     );
   }
 
-  Widget _buildWaveform() {
-    if (!_recording) return const SizedBox.shrink();
-    return SizedBox(
-      width: 200,
-      height: 200,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          for (final level in _levels)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 1.5),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 100),
-                width: 3,
-                height: 16 + level * 84,
-                decoration: BoxDecoration(
-                  color: ZapColors.primaryLight.withValues(alpha: 0.35 + level * 0.65),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+  Widget _buildWaveform(ZapTokens z) {
+    // Bars take the color of the moment being recorded for.
+    final hue = widget.isPlugIn ? z.charge : z.release;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (final level in _levels)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 90),
+              width: 4,
+              height: 6 + level * 90,
+              decoration: BoxDecoration(
+                color: _recording ? Color.lerp(z.surfaceHigh, hue.strong, 0.35 + level * 0.65) : z.surfaceHigh,
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
-        ],
+          ),
+      ],
+    );
+  }
+}
+
+class _RecordButton extends StatelessWidget {
+  final bool recording;
+  final VoidCallback onTap;
+  const _RecordButton({required this.recording, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final z = context.zap;
+    return Semantics(
+      button: true,
+      label: recording ? 'Stop recording' : 'Start recording',
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 84,
+          height: 84,
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: z.surfaceHigh, width: 4)),
+          child: Center(
+            child: AnimatedContainer(
+              duration: ZapTheme.medium,
+              curve: ZapTheme.emphasized,
+              width: recording ? 30 : 68,
+              height: recording ? 30 : 68,
+              decoration: BoxDecoration(
+                color: z.danger,
+                borderRadius: BorderRadius.circular(recording ? 8 : 34),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

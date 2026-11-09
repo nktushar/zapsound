@@ -41,12 +41,12 @@ class AlarmActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#050508"))
+            setBackgroundColor(Color.parseColor("#0D0D0F"))
             setPadding(dp(24), dp(24), dp(24), dp(24))
         }
 
         root.addView(TextView(this).apply {
-            text = "⚡ Charger removed!"
+            text = "Charger removed"
             textSize = 24f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -56,7 +56,7 @@ class AlarmActivity : Activity() {
         subtitle = TextView(this).apply {
             text = "Enter your PIN to stop the alarm"
             textSize = 15f
-            setTextColor(Color.parseColor("#9B9AB0"))
+            setTextColor(Color.parseColor("#9898A2"))
             gravity = Gravity.CENTER
             setPadding(0, dp(8), 0, dp(24))
         }
@@ -64,7 +64,7 @@ class AlarmActivity : Activity() {
 
         dots = TextView(this).apply {
             textSize = 30f
-            setTextColor(Color.parseColor("#7C5CFF"))
+            setTextColor(Color.parseColor("#FF5E66"))
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, dp(24))
             text = "· · · ·"
@@ -127,7 +127,7 @@ class AlarmActivity : Activity() {
             entered.clear()
             refreshDots()
             subtitle.text = "Wrong PIN — try again"
-            subtitle.setTextColor(Color.parseColor("#FF5252"))
+            subtitle.setTextColor(Color.parseColor("#FF5E66"))
         }
     }
 

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../models/sound_model.dart';
 import '../services/preferences_service.dart';
 import '../services/audio_service.dart';
@@ -10,9 +9,12 @@ import '../services/battery_service.dart';
 import '../services/purchase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pin_dialog.dart';
+import '../widgets/sound_widgets.dart';
 import 'sound_picker_screen.dart';
 import 'premium_screen.dart';
 import 'settings_screen.dart';
+
+const double _kDial = 232;
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,28 +23,32 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  String _plugInId  = 's1';
+  String _plugInId = 's1';
   String _plugOutId = 's2';
-  bool   _isPremium = false;
+  String _battFullId = 's4';
+  bool _battFullEnabled = false;
+  bool _isPremium = false;
   // Simulated charger state while a tap-to-test is playing; null = show the
   // real battery state. Must win over _batt, which is non-null on Android.
-  bool?  _testCharging;
-  int    _testSeq = 0;
-  bool   _isEnabled = true;
-  bool   _antitheftArmed = false;
+  bool? _testCharging;
+  int _testSeq = 0;
+  bool _isEnabled = true;
+  bool _antitheftArmed = false;
   String _price = '\$2.99';
+  SoundTarget? _previewing; // tile whose sound is currently previewing
   BatteryStatus? _batt;
   Timer? _battTimer;
-  late AnimationController _glowCtrl;
-  // Ripple burst fired by tap-to-test; _burstPlugIn picks its color.
-  late AnimationController _burstCtrl;
+  // Drives the pulse that travels through lit ticks while charging.
+  late final AnimationController _flowCtrl;
+  // Ripple fired by tap-to-test; colored by the moment being tested.
+  late final AnimationController _burstCtrl;
   bool _burstPlugIn = true;
 
   @override
   void initState() {
     super.initState();
-    _glowCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..repeat(reverse: true);
-    _burstCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100));
+    _flowCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2200));
+    _burstCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
     _load();
     _loadBattery();
     _battTimer = Timer.periodic(const Duration(seconds: 15), (_) => _loadBattery());
@@ -50,12 +56,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _load() async {
-    final inId  = await PrefsService.getPlugIn();
+    final inId = await PrefsService.getPlugIn();
     final outId = await PrefsService.getPlugOut();
-    final prem  = await PrefsService.isPremium();
+    final prem = await PrefsService.isPremium();
     final enabled = await PrefsService.isEnabled();
     final armed = await PrefsService.isAntitheftArmed();
-    if (mounted) setState(() { _plugInId = inId; _plugOutId = outId; _isPremium = prem; _isEnabled = enabled; _antitheftArmed = armed; });
+    final battFull = await PrefsService.isBatteryFullEnabled();
+    final battFullId = await PrefsService.getBatteryFullSound();
+    if (mounted) {
+      setState(() {
+        _plugInId = inId;
+        _plugOutId = outId;
+        _isPremium = prem;
+        _isEnabled = enabled;
+        _antitheftArmed = armed;
+        _battFullEnabled = battFull;
+        _battFullId = battFullId;
+      });
+    }
     if (!prem) {
       final product = await PurchaseService.getProduct();
       if (product != null && mounted) setState(() => _price = product.price);
@@ -64,7 +82,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Future<void> _loadBattery() async {
     final batt = await BatteryService.getStatus();
-    if (mounted) setState(() => _batt = batt);
+    if (!mounted) return;
+    setState(() => _batt = batt);
+    _syncFlow();
+  }
+
+  void _syncFlow() {
+    if (_showCharging) {
+      if (!_flowCtrl.isAnimating) _flowCtrl.repeat();
+    } else {
+      _flowCtrl.stop();
+    }
   }
 
   SoundModel _sound(String id) =>
@@ -72,11 +100,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   bool get _showCharging => _testCharging ?? _batt?.isPluggedIn ?? false;
 
-  void _testCharge() async {
+  Future<void> _testCharge() async {
     HapticFeedback.mediumImpact();
     final plugIn = !_showCharging;
     final seq = ++_testSeq;
-    setState(() { _testCharging = plugIn; _burstPlugIn = plugIn; });
+    setState(() {
+      _testCharging = plugIn;
+      _burstPlugIn = plugIn;
+    });
+    _syncFlow();
     _burstCtrl.forward(from: 0);
     if (plugIn) {
       await AudioService.onPlugIn();
@@ -86,20 +118,50 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Hold the simulated state briefly, then fall back to the real one —
     // unless another tap started a newer test meanwhile.
     await Future.delayed(const Duration(milliseconds: 1200));
-    if (mounted && seq == _testSeq) setState(() => _testCharging = null);
+    if (mounted && seq == _testSeq) {
+      setState(() => _testCharging = null);
+      _syncFlow();
+    }
   }
 
-  void _toggleEnabled(bool v) async {
+  Future<void> _previewTile(SoundTarget t) async {
+    if (_previewing == t) {
+      await AudioService.stop();
+      return;
+    }
+    HapticFeedback.selectionClick();
+    setState(() => _previewing = t);
+    if (t == SoundTarget.plugIn) {
+      await AudioService.onPlugIn();
+    } else {
+      await AudioService.onPlugOut();
+    }
+    if (mounted && _previewing == t) setState(() => _previewing = null);
+  }
+
+  Future<void> _toggleEnabled(bool v) async {
+    HapticFeedback.selectionClick();
     setState(() => _isEnabled = v);
     await PrefsService.setEnabled(v);
   }
 
+  Future<void> _toggleBatteryFull(bool v) async {
+    HapticFeedback.selectionClick();
+    setState(() => _battFullEnabled = v);
+    await PrefsService.setBatteryFullEnabled(v);
+  }
+
+  Future<void> _openPremium() async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
+    _load();
+  }
+
   Future<void> _toggleAntitheft(bool v) async {
     if (!_isPremium) {
-      await Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
-      _load();
+      await _openPremium();
       return;
     }
+    HapticFeedback.selectionClick();
     if (v) {
       var pin = await PrefsService.getAntitheftPin();
       if (pin == null) {
@@ -111,7 +173,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       await PrefsService.setAntitheftArmed(true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Armed — unplugging will sound the alarm.')),
+          const SnackBar(content: Text('Alarm armed. Unplugging now sounds the siren.')),
         );
       }
       if (!await BatteryService.canUseFullScreenIntent() && mounted) {
@@ -130,11 +192,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final open = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Allow lock-screen alarm'),
+        title: const Text('Show the PIN pad on the lock screen?'),
         content: const Text(
-          'To show the PIN screen over your lock screen when the alarm goes off, '
-          'allow ZapSound to use full-screen notifications.\n\n'
-          'Without it the siren still sounds, but you\'ll need to tap the notification to stop it.',
+          'Allow full-screen notifications so the PIN pad appears over your lock screen when the alarm goes off.\n\n'
+          'Without it the siren still sounds, but you have to tap the notification to stop it.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not now')),
@@ -145,467 +206,453 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (open == true) await BatteryService.openFullScreenIntentSettings();
   }
 
-  void _goToPicker(bool isPlugIn) {
-    Navigator.push(context, MaterialPageRoute(
-      builder: (_) => SoundPickerScreen(
-        target: isPlugIn ? SoundTarget.plugIn : SoundTarget.plugOut,
-        currentId: isPlugIn ? _plugInId : _plugOutId,
-        isPremium: _isPremium,
+  Future<void> _goToPicker(SoundTarget target) async {
+    if (_previewing != null) await AudioService.stop();
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SoundPickerScreen(
+          target: target,
+          currentId: switch (target) {
+            SoundTarget.plugIn => _plugInId,
+            SoundTarget.plugOut => _plugOutId,
+            SoundTarget.batteryFull => _battFullId,
+          },
+          isPremium: _isPremium,
+        ),
       ),
-    )).then((_) => _load());
+    );
+    _load();
   }
 
   @override
   void dispose() {
     BatteryService.chargerEvents.removeListener(_loadBattery);
     _battTimer?.cancel();
-    _glowCtrl.dispose();
+    _flowCtrl.dispose();
     _burstCtrl.dispose();
     super.dispose();
   }
 
-  String get _batteryLine {
+  String get _stateLine {
+    if (_testCharging != null) return _testCharging! ? 'Testing plug-in sound' : 'Testing unplug sound';
     final b = _batt;
-    if (b == null || b.level < 0) return 'Plug in your charger to hear sounds automatically';
-    final parts = <String>['${b.level}%'];
+    if (b == null || b.level < 0) return 'Battery status unavailable';
     if (b.isPluggedIn) {
       final state = b.level >= 100 ? 'Fully charged' : 'Charging';
-      parts.add('$state · ${b.plugType}');
-    } else {
-      parts.add('On battery');
+      return b.plugType.isEmpty ? state : '$state via ${b.plugType}';
     }
-    if (b.temperature > 0) parts.add('${b.temperature.toStringAsFixed(1)}°C');
-    return parts.join('   ·   ');
+    return 'On battery';
   }
 
   @override
   Widget build(BuildContext context) {
-    final plugIn  = _sound(_plugInId);
-    final plugOut = _sound(_plugOutId);
-    final charging = _showCharging;
+    final z = context.zap;
 
     return Scaffold(
-      // The fixed hero/cards layout shouldn't squash when a dialog keyboard opens.
+      // The fixed hero layout shouldn't squash when a dialog keyboard opens.
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
+        titleSpacing: ZapTheme.space5,
         title: Row(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.bolt_rounded, color: ZapColors.primary, size: 18),
-          const SizedBox(width: 6),
-          Text('ZapSound',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 20,
-              foreground: Paint()..shader = const LinearGradient(
-                colors: [ZapColors.primary, ZapColors.cyan],
-              ).createShader(const Rect.fromLTWH(0, 0, 120, 20)),
-            ),
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(color: z.ink, borderRadius: BorderRadius.circular(9)),
+            child: Icon(Icons.bolt_rounded, size: 19, color: z.onInk),
           ),
+          const SizedBox(width: 10),
+          Text('ZapSound', style: zapDisplay(23, weight: FontWeight.w800, color: z.ink)),
         ]),
         actions: [
-          if (!_isPremium)
-            GestureDetector(
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen())).then((_) => _load()),
-              child: Container(
-                margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  gradient: ZapGradients.gold,
-                  borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
-                ),
-                child: const Row(children: [
-                  Icon(Icons.bolt_rounded, size: 14, color: Colors.black),
-                  SizedBox(width: 3),
-                  Text('PRO', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black)),
-                ]),
-              ),
+          Padding(
+            padding: const EdgeInsets.only(right: ZapTheme.space3),
+            child: IconButton.filled(
+              tooltip: 'Settings',
+              style: IconButton.styleFrom(backgroundColor: z.surface, foregroundColor: z.ink),
+              icon: const Icon(Icons.settings_outlined, size: 22),
+              onPressed: () async {
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+                _load();
+              },
             ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, size: 22),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => _load()),
           ),
         ],
       ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(ZapTheme.space4, 0, ZapTheme.space4, ZapTheme.space8),
+        children: [
+          _buildDial(z),
+          const SizedBox(height: ZapTheme.space6),
 
-      body: Stack(children: [
-        const AuraBackground(),
-        SafeArea(child: Column(children: [
-          const SizedBox(height: 12),
-
-          // Master enable/disable toggle
+          // Main moments, governed by the master switch in their header.
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
-            child: GlassCard(
-              padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space4, vertical: ZapTheme.space2),
-              child: Row(children: [
-                Icon(
-                  _isEnabled ? Icons.bolt_rounded : Icons.bolt_outlined,
-                  color: _isEnabled ? ZapColors.primary : ZapColors.textSecondary,
-                  size: 20,
-                ),
-                const SizedBox(width: ZapTheme.space3),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Charger sounds', style: TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w700)),
-                  Text(
-                    _isEnabled ? 'On — plays when you plug in or unplug' : 'Off — no sounds will play',
-                    style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary),
-                  ),
-                ])),
-                Switch(
-                  value: _isEnabled,
-                  activeThumbColor: ZapColors.primary,
-                  onChanged: _toggleEnabled,
-                ),
-              ]),
-            ),
-          ).animate().fadeIn(duration: 300.ms),
-
-          const Spacer(),
-
-          // Battery ring hero with the zap test button inside.
-          // Hit area is clipped to the ring's circle: the GestureDetector's
-          // rectangle extends past the ring at the corners, so a plain onTap
-          // would fire on taps visually outside it.
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapUp: (d) {
-              const center = Offset(112, 112);
-              if ((d.localPosition - center).distance <= 112) _testCharge();
-            },
-            child: AnimatedBuilder(
-              animation: Listenable.merge([_glowCtrl, _burstCtrl]),
-              builder: (_, __) => SizedBox(
-                width: 224, height: 224,
-                // Clip.none: the ripples expand past the 224 box.
-                child: Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
-                  if (_burstCtrl.isAnimating)
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: CustomPaint(
-                          painter: _RippleBurstPainter(
-                            t: _burstCtrl.value,
-                            color: _burstPlugIn ? ZapColors.primary : ZapColors.cyan,
-                          ),
-                        ),
-                      ),
+            padding: const EdgeInsets.fromLTRB(ZapTheme.space1, 0, 0, ZapTheme.space3),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Charger sounds', style: zapDisplay(22, color: z.ink)),
+                  const SizedBox(height: 2),
+                  AnimatedSwitcher(
+                    duration: ZapTheme.fast,
+                    layoutBuilder: (c, p) => Stack(alignment: Alignment.topLeft, children: [...p, if (c != null) c]),
+                    child: Text(
+                      _isEnabled ? 'Playing even when the app is closed' : 'Paused. Nothing will play.',
+                      key: ValueKey(_isEnabled),
+                      style: TextStyle(fontSize: ZapTheme.textSm, color: z.inkMuted),
                     ),
-                  CustomPaint(
-                    size: const Size(224, 224),
-                    painter: _BatteryRingPainter(
-                      progress: (_batt?.level ?? -1) >= 0 ? _batt!.level / 100 : 0,
-                      charging: charging,
-                      glow: _glowCtrl.value,
-                    ),
-                  ),
-                  Transform.scale(
-                    scale: 1 + 0.08 * math.sin(math.pi * (_burstCtrl.value / 0.35).clamp(0.0, 1.0)),
-                    child: Container(
-                    width: 158, height: 158,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : Colors.white,
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-                      boxShadow: charging ? [
-                        BoxShadow(
-                          color: ZapColors.primary.withValues(alpha: 0.25 + 0.2 * _glowCtrl.value),
-                          blurRadius: 34 + 12 * _glowCtrl.value,
-                          spreadRadius: 4,
-                        ),
-                      ] : [],
-                    ),
-                    child: Center(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(
-                          charging ? Icons.bolt_rounded : Icons.power_rounded,
-                          size: 46,
-                          color: charging ? ZapColors.primary : ZapColors.textSecondary,
-                        )
-                            .animate(target: charging ? 1 : 0)
-                            .scale(begin: const Offset(0.8, 0.8), end: const Offset(1.1, 1.1)),
-                        const SizedBox(height: 4),
-                        if ((_batt?.level ?? -1) >= 0)
-                          Text('${_batt!.level}%',
-                              style: const TextStyle(fontSize: ZapTheme.textXl, fontWeight: FontWeight.w800))
-                        else
-                          Text(
-                            charging ? 'Charging!' : 'Tap to test',
-                            style: TextStyle(
-                              fontSize: ZapTheme.textSm,
-                              color: charging ? ZapColors.primary : ZapColors.textSecondary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                      ]),
-                    ),
-                  ),
                   ),
                 ]),
               ),
-            ),
-          ).animate().scale(duration: 500.ms, curve: Curves.elasticOut),
-
-          const SizedBox(height: 10),
-          Text(
-            _batteryLine,
-            style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary),
-            textAlign: TextAlign.center,
+              Switch(value: _isEnabled, onChanged: _toggleEnabled),
+            ]),
           ),
-          const SizedBox(height: 4),
-          const Text(
-            'Tap the ring to test your sounds',
-            style: TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary),
-            textAlign: TextAlign.center,
-          ),
-
-          const Spacer(),
-
-          // Sound selector cards
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
-            child: Column(children: [
-              _SoundCard(
-                label: 'Plug-in sound',
-                fromIcon: Icons.power_rounded,
-                toIcon: Icons.bolt_rounded,
-                sound: plugIn,
-                onTap: () => _goToPicker(true),
-              ).animate().slideX(begin: -0.08, duration: 400.ms, delay: 100.ms, curve: Curves.easeOut),
-              const SizedBox(height: ZapTheme.space3),
-              _SoundCard(
-                label: 'Unplug sound',
-                fromIcon: Icons.bolt_rounded,
-                toIcon: Icons.power_rounded,
-                sound: plugOut,
-                onTap: () => _goToPicker(false),
-              ).animate().slideX(begin: 0.08, duration: 400.ms, delay: 180.ms, curve: Curves.easeOut),
-              const SizedBox(height: ZapTheme.space3),
-              GlassCard(
-                padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space4, vertical: ZapTheme.space2),
-                child: Row(children: [
-                  Icon(
-                    _antitheftArmed ? Icons.gpp_good_rounded : Icons.shield_outlined,
-                    color: _antitheftArmed ? ZapColors.success : ZapColors.textSecondary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: ZapTheme.space3),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(children: [
-                      const Text('Anti-theft alarm', style: TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w700)),
-                      if (!_isPremium) ...[
-                        const SizedBox(width: 6),
-                        const Icon(Icons.bolt_rounded, size: 14, color: ZapColors.gold),
-                      ],
-                    ]),
-                    Text(
-                      _antitheftArmed ? 'Armed — siren + PIN if unplugged' : 'Siren if someone unplugs your phone',
-                      style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary),
-                    ),
-                  ])),
-                  Switch(
-                    value: _antitheftArmed,
-                    activeThumbColor: ZapColors.success,
-                    onChanged: _toggleAntitheft,
-                  ),
-                ]),
-              ).animate().slideX(begin: -0.08, duration: 400.ms, delay: 260.ms, curve: Curves.easeOut),
+          SizedBox(
+            height: 184,
+            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Expanded(
+                child: _MomentTile(
+                  label: 'When plugged in',
+                  icon: Icons.power_rounded,
+                  hue: z.charge,
+                  sound: _sound(_plugInId),
+                  enabled: _isEnabled,
+                  playing: _previewing == SoundTarget.plugIn,
+                  onPreview: () => _previewTile(SoundTarget.plugIn),
+                  onTap: () => _goToPicker(SoundTarget.plugIn),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _MomentTile(
+                  label: 'When unplugged',
+                  icon: Icons.power_off_rounded,
+                  hue: z.release,
+                  sound: _sound(_plugOutId),
+                  enabled: _isEnabled,
+                  playing: _previewing == SoundTarget.plugOut,
+                  onPreview: () => _previewTile(SoundTarget.plugOut),
+                  onTap: () => _goToPicker(SoundTarget.plugOut),
+                ),
+              ),
             ]),
           ),
 
-          const SizedBox(height: ZapTheme.space4),
-
-          // Premium banner
-          if (!_isPremium)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(ZapTheme.space5, 0, ZapTheme.space5, ZapTheme.space5),
-              child: _PremiumBanner(
-                price: _price,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen())).then((_) => _load()),
+          const ZapSectionLabel('More alerts'),
+          ZapGroup(
+            colors: [null, _antitheftArmed ? z.guard.container : null],
+            children: [
+              ZapItem(
+                icon: Icons.battery_full_rounded,
+                hue: z.full,
+                title: 'Battery full',
+                subtitle: _battFullEnabled
+                    ? 'Plays ${_sound(_battFullId).name} at 100%'
+                    : 'Play a sound when charging finishes',
+                trailing: SplitSwitch(value: _battFullEnabled, onChanged: _toggleBatteryFull),
+                onTap: () => _goToPicker(SoundTarget.batteryFull),
               ),
-            ).animate().slideY(begin: 0.3, duration: 400.ms, delay: 300.ms, curve: Curves.easeOut)
-          else
-            const SizedBox(height: ZapTheme.space5),
-        ])),
-      ]),
+              ZapItem(
+                icon: _antitheftArmed ? Icons.shield_rounded : Icons.shield_outlined,
+                hue: z.guard,
+                title: 'Unplug alarm',
+                titleColor: _antitheftArmed ? z.guard.onContainer : null,
+                hueFilled: _antitheftArmed,
+                subtitle: _antitheftArmed
+                    ? 'Armed. The siren plays until your PIN is entered.'
+                    : 'Sound a siren if someone takes your phone off the charger',
+                trailing: _isPremium ? Switch(value: _antitheftArmed, onChanged: _toggleAntitheft) : const ProTag(),
+                onTap: () => _toggleAntitheft(!_antitheftArmed),
+              ),
+            ],
+          ),
+
+          if (!_isPremium) ...[
+            const SizedBox(height: ZapTheme.space6),
+            _ProCard(price: _price, onTap: _openPremium),
+          ],
+        ],
+      ),
     );
+  }
+
+  Widget _buildDial(ZapTokens z) {
+    final charging = _showCharging;
+    final level = _batt?.level ?? -1;
+    final known = level >= 0;
+    final low = known && level <= 15 && !charging;
+    final lit = low ? z.danger : (charging ? z.charge.strong : z.ink);
+
+    return Column(children: [
+      const SizedBox(height: ZapTheme.space2),
+      Semantics(
+        button: true,
+        label: known ? 'Battery $level percent. Tap to test your sounds.' : 'Tap to test your sounds.',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          // Hit area is clipped to the dial's circle: the box corners lie
+          // visually outside it, so a plain onTap would fire there too.
+          onTapUp: (d) {
+            const c = Offset(_kDial / 2, _kDial / 2);
+            if ((d.localPosition - c).distance <= _kDial / 2) _testCharge();
+          },
+          child: SizedBox(
+            width: _kDial,
+            height: _kDial,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: known ? level / 100 : 0),
+              duration: const Duration(milliseconds: 900),
+              curve: ZapTheme.emphasized,
+              builder: (_, progress, __) => AnimatedBuilder(
+                animation: Listenable.merge([_flowCtrl, _burstCtrl]),
+                builder: (_, __) => CustomPaint(
+                  painter: _DialPainter(
+                    progress: progress,
+                    lit: lit,
+                    unlit: z.surfaceHigh,
+                    flow: charging ? _flowCtrl.value : null,
+                    burst: _burstCtrl.isAnimating ? _burstCtrl.value : null,
+                    burstColor: _burstPlugIn ? z.charge.strong : z.release.strong,
+                  ),
+                  child: Center(child: _dialCenter(z, level, known, charging)),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: ZapTheme.space1),
+      Text('Tap the dial to test', style: TextStyle(fontSize: ZapTheme.textXs, color: z.inkMuted)),
+    ]);
+  }
+
+  Widget _dialCenter(ZapTokens z, int level, bool known, bool charging) {
+    final temp = _batt?.temperature ?? -1;
+    final accent = charging ? z.charge.strong : z.inkMuted;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+          known ? '$level' : '—',
+          style: zapDisplay(68, weight: FontWeight.w700, color: z.ink, height: 1.0)
+              .copyWith(fontFeatures: ZapTheme.tabular),
+        ),
+        if (known)
+          Padding(
+            padding: const EdgeInsets.only(top: 8, left: 2),
+            child: Text('%', style: zapDisplay(22, weight: FontWeight.w600, color: z.inkMuted)),
+          ),
+      ]),
+      const SizedBox(height: 6),
+      AnimatedSwitcher(
+        duration: ZapTheme.medium,
+        child: Row(
+          key: ValueKey(_stateLine),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (charging) ...[Icon(Icons.bolt_rounded, size: 16, color: accent), const SizedBox(width: 2)],
+            Text(_stateLine,
+                style: TextStyle(fontSize: ZapTheme.textSm, fontWeight: FontWeight.w700, color: accent)),
+          ],
+        ),
+      ),
+      if (temp > 0) ...[
+        const SizedBox(height: 2),
+        Text('${temp.toStringAsFixed(1)} °C',
+            style: TextStyle(fontSize: ZapTheme.textXs, color: z.inkMuted, fontFeatures: ZapTheme.tabular)),
+      ],
+    ]);
   }
 }
 
-/// Tap-to-test burst: a soft flash inside the ring plus three staggered
-/// rings expanding outward from its edge and fading. [t] runs 0→1.
-class _RippleBurstPainter extends CustomPainter {
-  final double t;
-  final Color color;
+/// Instrument-style battery gauge: a ring of tick marks lit up to the battery
+/// level. While charging, a brighter pulse travels through the lit ticks like
+/// current through a wire. [burst] (0→1) draws one expanding ring for
+/// tap-to-test feedback.
+class _DialPainter extends CustomPainter {
+  final double progress;
+  final Color lit;
+  final Color unlit;
+  final double? flow;
+  final double? burst;
+  final Color burstColor;
 
-  _RippleBurstPainter({required this.t, required this.color});
+  static const _ticks = 60;
+
+  _DialPainter({
+    required this.progress,
+    required this.lit,
+    required this.unlit,
+    required this.flow,
+    required this.burst,
+    required this.burstColor,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final base = size.width / 2 - 8; // battery ring radius
+    final c = size.center(Offset.zero);
+    final outer = size.width / 2 - 6;
+    const len = 15.0;
+    final litCount = (progress * _ticks).round();
 
-    // Inner flash, gone by t = 0.35.
-    final flash = (1 - t / 0.35).clamp(0.0, 1.0);
-    if (flash > 0) {
-      canvas.drawCircle(
-        center,
-        base,
-        Paint()
-          ..shader = RadialGradient(colors: [
-            color.withValues(alpha: 0.45 * flash),
-            color.withValues(alpha: 0),
-          ]).createShader(Rect.fromCircle(center: center, radius: base)),
-      );
+    final paint = Paint()
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 4.5;
+
+    for (var i = 0; i < _ticks; i++) {
+      final a = -math.pi / 2 + 2 * math.pi * i / _ticks;
+      final dir = Offset(math.cos(a), math.sin(a));
+      final isLit = i < litCount;
+      var color = isLit ? lit : unlit;
+      if (isLit && flow != null && litCount > 0) {
+        // Distance (in ticks) behind the travelling pulse head.
+        final head = flow! * litCount;
+        var d = head - i;
+        if (d < 0) d += litCount;
+        final glow = (1 - d / 8).clamp(0.0, 1.0);
+        color = Color.lerp(lit.withValues(alpha: 0.45), lit, glow)!;
+      }
+      paint.color = color;
+      canvas.drawLine(c + dir * (outer - len), c + dir * outer, paint);
     }
 
-    const rings = 3;
-    const stagger = 0.18;
-    const span = 1 - stagger * (rings - 1);
-    for (var i = 0; i < rings; i++) {
-      final local = ((t - i * stagger) / span).clamp(0.0, 1.0);
-      if (local <= 0 || local >= 1) continue;
-      final eased = Curves.easeOutCubic.transform(local);
-      final fade = 1 - local;
+    final b = burst;
+    if (b != null) {
+      final e = Curves.easeOutCubic.transform(b);
       canvas.drawCircle(
-        center,
-        base + 72 * eased,
+        c,
+        outer - len - 10 + 26 * e,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5 + 6 * fade
-          ..color = color.withValues(alpha: 0.75 * fade)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2 + 4 * eased),
+          ..strokeWidth = 2 + 5 * (1 - b)
+          ..color = burstColor.withValues(alpha: 0.7 * (1 - b)),
       );
     }
   }
 
   @override
-  bool shouldRepaint(_RippleBurstPainter old) => old.t != t || old.color != color;
+  bool shouldRepaint(_DialPainter o) =>
+      o.progress != progress ||
+      o.lit != lit ||
+      o.unlit != unlit ||
+      o.flow != flow ||
+      o.burst != burst ||
+      o.burstColor != burstColor;
 }
 
-class _BatteryRingPainter extends CustomPainter {
-  final double progress; // 0–1 battery level
-  final bool charging;
-  final double glow; // 0–1 pulse
-
-  _BatteryRingPainter({required this.progress, required this.charging, required this.glow});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 8;
-    const stroke = 10.0;
-    const start = -math.pi / 2;
-
-    final track = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..color = ZapColors.textSecondary.withValues(alpha: 0.15);
-    canvas.drawCircle(center, radius, track);
-
-    if (progress <= 0) return;
-    final sweep = 2 * math.pi * progress.clamp(0.0, 1.0);
-    final rect = Rect.fromCircle(center: center, radius: radius);
-    final arc = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..shader = SweepGradient(
-        startAngle: 0,
-        endAngle: 2 * math.pi,
-        transform: const GradientRotation(start),
-        colors: [
-          ZapColors.primary,
-          ZapColors.cyan,
-          charging ? ZapColors.cyan.withValues(alpha: 0.7 + 0.3 * glow) : ZapColors.cyan,
-        ],
-        stops: const [0.0, 0.7, 1.0],
-      ).createShader(rect);
-    canvas.drawArc(rect, start, sweep, false, arc);
-  }
-
-  @override
-  bool shouldRepaint(_BatteryRingPainter old) =>
-      old.progress != progress || old.charging != charging || old.glow != glow;
-}
-
-class _SoundCard extends StatelessWidget {
+/// Big colored tile for one charger moment. Tap = change sound,
+/// play button = preview. Turns neutral while charger sounds are off.
+class _MomentTile extends StatelessWidget {
   final String label;
-  final IconData fromIcon, toIcon;
+  final IconData icon;
+  final ZapHue hue;
   final SoundModel sound;
+  final bool enabled;
+  final bool playing;
+  final VoidCallback onPreview;
   final VoidCallback onTap;
-  const _SoundCard({required this.label, required this.fromIcon, required this.toIcon, required this.sound, required this.onTap});
+
+  const _MomentTile({
+    required this.label,
+    required this.icon,
+    required this.hue,
+    required this.sound,
+    required this.enabled,
+    required this.playing,
+    required this.onPreview,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return GlassCard(
-      onTap: onTap,
-      padding: const EdgeInsets.all(ZapTheme.space4),
-      child: Row(children: [
-        Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(fromIcon, size: 18, color: ZapColors.textSecondary),
-          const Icon(Icons.arrow_forward_rounded, size: 14, color: ZapColors.textSecondary),
-          Icon(toIcon, size: 18, color: ZapColors.textSecondary),
-        ]),
-        const SizedBox(width: ZapTheme.space3),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
-          const SizedBox(height: 3),
-          Row(children: [
-            Text(sound.emoji, style: const TextStyle(fontSize: 14)),
-            const SizedBox(width: 6),
-            Text(sound.name, style: const TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w700)),
-            if (sound.isPremium) ...[
-              const SizedBox(width: 6),
-              const Icon(Icons.bolt_rounded, size: 14, color: ZapColors.gold),
-            ],
+    final z = context.zap;
+    final bg = enabled ? hue.container : z.surface;
+    final fg = enabled ? hue.onContainer : z.inkMuted;
+    return Semantics(
+      button: true,
+      label: '$label: ${sound.name}. Tap to change.',
+      child: Pressable(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: ZapTheme.medium,
+          curve: ZapTheme.emphasized,
+          padding: const EdgeInsets.fromLTRB(18, 16, 14, 18),
+          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(ZapTheme.radiusTile)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Padding(padding: const EdgeInsets.only(top: 4), child: Icon(icon, size: 26, color: fg)),
+              const Spacer(),
+              PlayButton(
+                playing: playing,
+                onPressed: onPreview,
+                size: 46,
+                fill: fg,
+                iconColor: bg,
+              ),
+            ]),
+            const Spacer(),
+            Row(children: [
+              Flexible(
+                child: Text(label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: ZapTheme.textSm,
+                        fontWeight: FontWeight.w600,
+                        color: fg.withValues(alpha: 0.75))),
+              ),
+              if (playing) ...[const SizedBox(width: 6), EqualizerBars(color: fg, size: 12)],
+            ]),
+            const SizedBox(height: 4),
+            Text(
+              sound.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: zapDisplay(24, color: fg, height: 1.05),
+            ),
           ]),
-        ])),
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: ZapColors.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-          ),
-          child: const Icon(Icons.chevron_right_rounded, color: ZapColors.primary, size: 20),
         ),
-      ]),
+      ),
     );
   }
 }
 
-class _PremiumBanner extends StatelessWidget {
+/// Inverted ink card advertising Pro. The four dots are the moment colors —
+/// "everything unlocked".
+class _ProCard extends StatelessWidget {
   final String price;
   final VoidCallback onTap;
-  const _PremiumBanner({required this.price, required this.onTap});
+  const _ProCard({required this.price, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    final z = context.zap;
+    return Pressable(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(ZapTheme.space4),
-        decoration: BoxDecoration(
-          gradient: ZapGradients.premium,
-          borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
-        ),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(ZapTheme.radiusMd)),
-            child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 22),
+        padding: const EdgeInsets.fromLTRB(22, 20, 20, 20),
+        decoration: BoxDecoration(color: z.ink, borderRadius: BorderRadius.circular(ZapTheme.radiusTile)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text('ZapSound Pro', style: zapDisplay(24, color: z.onInk))),
+            for (final h in [z.charge, z.release, z.full, z.guard])
+              Container(
+                width: 14,
+                height: 14,
+                margin: const EdgeInsets.only(left: 4),
+                decoration: BoxDecoration(color: h.strong, shape: BoxShape.circle),
+              ),
+          ]),
+          const SizedBox(height: 6),
+          Text(
+            '25 more sounds, your own recordings and the unplug alarm. One payment, no subscription.',
+            style: TextStyle(fontSize: ZapTheme.textSm, height: 1.45, color: z.onInk.withValues(alpha: 0.7)),
           ),
-          const SizedBox(width: ZapTheme.space3),
-          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('ZapSound Pro', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: ZapTheme.textMd)),
-            Text('25+ sounds · Anti-theft alarm · Your voice', style: TextStyle(color: Colors.white70, fontSize: ZapTheme.textXs)),
-          ])),
+          const SizedBox(height: ZapTheme.space4),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              gradient: ZapGradients.gold,
-              borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
-            ),
-            child: Text(price, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w800, fontSize: ZapTheme.textSm)),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+            decoration: BoxDecoration(color: z.onInk, borderRadius: BorderRadius.circular(100)),
+            child: Text('Unlock for $price',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: z.ink)),
           ),
         ]),
       ),

@@ -4,7 +4,8 @@ class PrefsService {
   static const _plugIn    = 'plug_in_sound';
   static const _plugOut   = 'plug_out_sound';
   static const _premium   = 'is_premium';
-  static const _darkMode  = 'is_dark_mode';
+  static const _darkMode  = 'is_dark_mode'; // legacy bool, read once for migration
+  static const _themeMode = 'theme_mode';    // 'system' | 'light' | 'dark'
   static const _onboarded = 'onboarding_done';
   static const _customIn  = 'custom_in_path';
   static const _customOut = 'custom_out_path';
@@ -29,7 +30,6 @@ class PrefsService {
   static Future<String>  getPlugIn()     async => (await _p).getString(_plugIn)  ?? 's1';
   static Future<String>  getPlugOut()    async => (await _p).getString(_plugOut) ?? 's2';
   static Future<bool>    isPremium()     async => (await _p).getBool(_premium)   ?? false;
-  static Future<bool>    isDarkMode()    async => (await _p).getBool(_darkMode)  ?? true;
   static Future<bool>    isOnboarded()   async => (await _p).getBool(_onboarded) ?? false;
   static Future<String?> getCustomIn()   async => (await _p).getString(_customIn);
   static Future<String?> getCustomOut()  async => (await _p).getString(_customOut);
@@ -42,7 +42,6 @@ class PrefsService {
   static Future<void> setPlugIn(String v)     async => (await _p).setString(_plugIn, v);
   static Future<void> setPlugOut(String v)    async => (await _p).setString(_plugOut, v);
   static Future<void> setPremium(bool v)      async => (await _p).setBool(_premium, v);
-  static Future<void> setDarkMode(bool v)     async => (await _p).setBool(_darkMode, v);
   static Future<void> setOnboarded(bool v)    async => (await _p).setBool(_onboarded, v);
   static Future<void> setCustomIn(String v)   async => (await _p).setString(_customIn, v);
   static Future<void> setCustomOut(String v)  async => (await _p).setString(_customOut, v);
@@ -59,6 +58,18 @@ class PrefsService {
   }
   static Future<void> setAntitheftArmed(bool v)   async => (await _p).setBool(_antitheftArmed, v);
   static Future<void> setAntitheftPin(String v)   async => (await _p).setString(_antitheftPin, v);
+
+  /// 'system' | 'light' | 'dark'. Falls back to the legacy dark-mode bool,
+  /// then to following the system theme.
+  static Future<String> getThemeMode() async {
+    final p = await _p;
+    final v = p.getString(_themeMode);
+    if (v != null) return v;
+    final legacy = p.getBool(_darkMode);
+    if (legacy == null) return 'system';
+    return legacy ? 'dark' : 'light';
+  }
+  static Future<void> setThemeMode(String v) async => (await _p).setString(_themeMode, v);
 
   static Future<int>  getVolume()      async => (await _p).getInt(_volume) ?? 100;
   static Future<void> setVolume(int v) async => (await _p).setInt(_volume, v.clamp(0, 100));

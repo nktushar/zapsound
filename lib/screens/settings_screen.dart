@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
-import '../models/sound_model.dart';
 import '../services/audio_service.dart';
 import '../services/preferences_service.dart';
 import '../services/purchase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pin_dialog.dart';
-import 'sound_picker_screen.dart';
+import 'premium_screen.dart';
 
 const _packageId = 'com.zapsound.app';
 const _playStoreUrl = 'https://play.google.com/store/apps/details?id=$_packageId';
 // Served by GitHub Pages from docs/ on main.
 const _privacyPolicyUrl = 'https://nktushar.github.io/zapsound/privacy_policy.html';
+
+const _themeModes = ['system', 'light', 'dark'];
 
 Future<void> _openUrl(Uri uri) async {
   try {
@@ -28,8 +28,7 @@ Future<void> _openUrl(Uri uri) async {
 /// to the web listing if the Play Store app isn't installed.
 Future<void> _rateApp() async {
   try {
-    if (await launchUrl(Uri.parse('market://details?id=$_packageId'),
-        mode: LaunchMode.externalApplication)) {
+    if (await launchUrl(Uri.parse('market://details?id=$_packageId'), mode: LaunchMode.externalApplication)) {
       return;
     }
   } catch (_) {}
@@ -43,36 +42,32 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _isDark = true, _isPremium = false, _battFullEnabled = false;
+  String _themeMode = 'system';
+  bool _isPremium = false;
   bool _quietEnabled = false;
+  bool _restoring = false;
   int _quietStart = 22 * 60, _quietEnd = 7 * 60;
   double _volume = 100;
-  String _battFullSoundName = 'Ding!';
-  String _version = '...';
+  String _version = '';
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   Future<void> _load() async {
-    final dark = await PrefsService.isDarkMode();
+    final mode = await PrefsService.getThemeMode();
     final prem = await PrefsService.isPremium();
-    final battFull = await PrefsService.isBatteryFullEnabled();
-    final battFullId = await PrefsService.getBatteryFullSound();
     final volume = await PrefsService.getVolume();
     final quietEnabled = await PrefsService.isQuietHoursEnabled();
     final quietStart = await PrefsService.getQuietStart();
     final quietEnd = await PrefsService.getQuietEnd();
     final info = await PackageInfo.fromPlatform();
-    final battSound = ZapSoundLibrary.all.firstWhere(
-      (s) => s.id == battFullId,
-      orElse: () => ZapSoundLibrary.all[3],
-    );
     if (mounted) {
       setState(() {
-        _isDark = dark;
+        _themeMode = mode;
         _isPremium = prem;
-        _battFullEnabled = battFull;
-        _battFullSoundName = '${battSound.emoji} ${battSound.name}';
         _volume = volume.toDouble();
         _quietEnabled = quietEnabled;
         _quietStart = quietStart;
@@ -82,15 +77,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  String _formatMinutes(int m) =>
-      TimeOfDay(hour: m ~/ 60, minute: m % 60).format(context);
+  void _toast(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  String _formatMinutes(int m) => TimeOfDay(hour: m ~/ 60, minute: m % 60).format(context);
 
   Future<void> _pickQuietTime({required bool isStart}) async {
     final current = isStart ? _quietStart : _quietEnd;
     final picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: current ~/ 60, minute: current % 60),
-      helpText: isStart ? 'Quiet hours start' : 'Quiet hours end',
+      helpText: isStart ? 'Quiet from' : 'Quiet until',
     );
     if (picked == null) return;
     final minutes = picked.hour * 60 + picked.minute;
@@ -103,263 +99,295 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.w700))),
-      body: ListView(padding: const EdgeInsets.all(ZapTheme.space4), children: [
+  Future<void> _setTheme(int i) async {
+    final mode = _themeModes[i];
+    HapticFeedback.selectionClick();
+    setState(() => _themeMode = mode);
+    ZapSoundApp.of(context)?.setThemeMode(parseThemeMode(mode));
+    await PrefsService.setThemeMode(mode);
+  }
 
-        if (_isPremium)
-          _PremiumBadge().animate().fadeIn(duration: 300.ms).slideY(begin: -0.1, curve: Curves.easeOut),
+  Future<void> _changePin() async {
+    final pin = await showPinSetupDialog(context);
+    if (pin != null) {
+      await PrefsService.setAntitheftPin(pin);
+      if (mounted) _toast('PIN changed.');
+    }
+  }
 
-        const SizedBox(height: ZapTheme.space4),
+  Future<void> _restore() async {
+    setState(() => _restoring = true);
+    final ok = await PurchaseService.restoreAndCheck();
+    if (!mounted) return;
+    setState(() => _restoring = false);
+    _toast(ok ? 'Purchase restored. Pro is unlocked.' : 'No purchase found for this Google account.');
+    _load();
+  }
 
-        _Section('Sound', [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(ZapTheme.space4, ZapTheme.space3, ZapTheme.space4, 0),
-            child: Row(children: [
-              const _IconCircle(Icons.volume_up_rounded),
-              const SizedBox(width: ZapTheme.space4),
-              const Expanded(
-                child: Text('Volume', style: TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w600)),
+  void _showOemHelp() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final z = ctx.zap;
+        Widget step(int n, String text) => Padding(
+              padding: const EdgeInsets.only(bottom: ZapTheme.space4),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: z.ink, shape: BoxShape.circle),
+                  child: Text('$n', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: z.onInk)),
+                ),
+                const SizedBox(width: ZapTheme.space3),
+                Expanded(child: Text(text, style: TextStyle(fontSize: 15, height: 1.45, color: z.ink))),
+              ]),
+            );
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(ZapTheme.space6, 0, ZapTheme.space6, ZapTheme.space5),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Keep ZapSound running', style: zapDisplay(26, color: z.ink)),
+              const SizedBox(height: ZapTheme.space2),
+              Text(
+                'Xiaomi, Oppo, Vivo and some Samsung phones close background apps aggressively. '
+                'If sounds don\'t play while the app is closed:',
+                style: TextStyle(fontSize: 15, height: 1.45, color: z.inkMuted),
               ),
-              Text('${_volume.round()}%',
-                  style: const TextStyle(fontSize: ZapTheme.textSm, fontWeight: FontWeight.w700, color: ZapColors.primary)),
+              const SizedBox(height: ZapTheme.space6),
+              step(1, 'Open Settings, then Apps, then ZapSound, then Battery. Choose "No restrictions" or "Allow background activity".'),
+              step(2, 'Open Settings, then Apps, then Autostart (sometimes called "Auto-launch"). Turn ZapSound on.'),
+              step(3, 'Open ZapSound once after restarting your phone.'),
+              const SizedBox(height: ZapTheme.space2),
+              ZapPrimaryButton(label: 'Done', onPressed: () => Navigator.pop(ctx)),
             ]),
           ),
-          Slider(
-            value: _volume,
-            min: 0,
-            max: 100,
-            activeColor: ZapColors.primary,
-            onChanged: (v) => setState(() => _volume = v),
-            onChangeEnd: (v) async {
-              await PrefsService.setVolume(v.round());
-              // Play the current plug-in sound so the level can be judged.
-              await AudioService.onPlugIn();
-            },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final z = context.zap;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
+    final sections = <Widget>[
+      if (_isPremium)
+        Container(
+          margin: const EdgeInsets.only(top: ZapTheme.space2),
+          padding: const EdgeInsets.fromLTRB(22, 18, 18, 18),
+          decoration: BoxDecoration(color: z.ink, borderRadius: BorderRadius.circular(ZapTheme.radiusTile)),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('ZapSound Pro', style: zapDisplay(22, color: z.onInk)),
+                const SizedBox(height: 2),
+                Text('Lifetime access. Thanks for supporting the app.',
+                    style: TextStyle(fontSize: ZapTheme.textSm, color: z.onInk.withValues(alpha: 0.7))),
+              ]),
+            ),
+            Icon(Icons.verified_rounded, color: z.onInk, size: 26),
+          ]),
+        ),
+
+      const ZapSectionLabel('Sound'),
+      ZapGroup(children: [
+        ZapItem(
+          icon: Icons.volume_up_outlined,
+          title: 'Volume',
+          trailing: Text('${_volume.round()}%',
+              style: TextStyle(
+                  fontSize: ZapTheme.textSm,
+                  fontWeight: FontWeight.w700,
+                  color: z.inkMuted,
+                  fontFeatures: ZapTheme.tabular)),
+          below: Padding(
+            padding: const EdgeInsets.only(top: ZapTheme.space3, left: 44, right: 4),
+            child: Slider(
+              value: _volume,
+              min: 0,
+              max: 100,
+              padding: EdgeInsets.zero,
+              onChanged: (v) => setState(() => _volume = v),
+              onChangeEnd: (v) async {
+                await PrefsService.setVolume(v.round());
+                // Play the current plug-in sound so the level can be judged.
+                await AudioService.onPlugIn();
+              },
+            ),
           ),
-          SwitchListTile(
-            secondary: const _IconCircle(Icons.bedtime_outlined),
-            title: const Text('Quiet hours', style: TextStyle(fontSize: ZapTheme.textMd)),
-            subtitle: const Text('Mute charger sounds at night — the anti-theft alarm still works',
-                style: TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
+        ),
+        ZapItem(
+          icon: Icons.bedtime_outlined,
+          title: 'Quiet hours',
+          subtitle: 'Mute charger sounds at night. The unplug alarm still works.',
+          trailing: Switch(
             value: _quietEnabled,
-            activeThumbColor: ZapColors.primary,
             onChanged: (v) async {
               setState(() => _quietEnabled = v);
               await PrefsService.setQuietHoursEnabled(v);
             },
           ),
-          if (_quietEnabled) ...[
-            _Tile(Icons.nights_stay_outlined, 'Starts', _formatMinutes(_quietStart),
-                () => _pickQuietTime(isStart: true)),
-            _Tile(Icons.wb_sunny_outlined, 'Ends', _formatMinutes(_quietEnd),
-                () => _pickQuietTime(isStart: false)),
-          ],
-        ], delay: 0),
-
-        const SizedBox(height: ZapTheme.space4),
-
-        _Section('Alerts', [
-          SwitchListTile(
-            secondary: const _IconCircle(Icons.battery_full_rounded),
-            title: const Text('Battery full alert', style: TextStyle(fontSize: ZapTheme.textMd)),
-            subtitle: const Text('Play a sound when charging reaches 100%',
-                style: TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
-            value: _battFullEnabled,
-            activeThumbColor: ZapColors.primary,
-            onChanged: (v) async {
-              setState(() => _battFullEnabled = v);
-              await PrefsService.setBatteryFullEnabled(v);
-            },
+          below: AnimatedSize(
+            duration: ZapTheme.medium,
+            curve: ZapTheme.emphasized,
+            alignment: Alignment.topCenter,
+            child: _quietEnabled
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 14, left: 44),
+                    child: Row(children: [
+                      Expanded(
+                        child: _TimeBox(
+                            label: 'From', value: _formatMinutes(_quietStart), onTap: () => _pickQuietTime(isStart: true)),
+                      ),
+                      const SizedBox(width: ZapTheme.space2),
+                      Expanded(
+                        child: _TimeBox(
+                            label: 'Until', value: _formatMinutes(_quietEnd), onTap: () => _pickQuietTime(isStart: false)),
+                      ),
+                    ]),
+                  )
+                : const SizedBox(width: double.infinity),
           ),
-          if (_battFullEnabled)
-            _Tile(Icons.music_note_rounded, 'Battery full sound', _battFullSoundName, () async {
-              final currentId = await PrefsService.getBatteryFullSound();
-              if (!mounted) return;
-              await Navigator.push(context, MaterialPageRoute(
-                builder: (_) => SoundPickerScreen(
-                  target: SoundTarget.batteryFull,
-                  currentId: currentId,
-                  isPremium: _isPremium,
-                ),
-              ));
-              _load();
-            }),
-          if (_isPremium)
-            _Tile(Icons.pin_rounded, 'Anti-theft PIN', 'Change the PIN that stops the alarm', () async {
-              final pin = await showPinSetupDialog(context);
-              if (pin != null) {
-                await PrefsService.setAntitheftPin(pin);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('PIN updated.')),
-                  );
-                }
-              }
-            }),
-        ], delay: 1),
+        ),
+      ]),
 
-        const SizedBox(height: ZapTheme.space4),
-
-        _Section('Appearance', [
-          SwitchListTile(
-            secondary: const _IconCircle(Icons.dark_mode_outlined),
-            title: const Text('Dark mode', style: TextStyle(fontSize: ZapTheme.textMd)),
-            value: _isDark,
-            activeThumbColor: ZapColors.primary,
-            onChanged: (v) async {
-              setState(() => _isDark = v);
-              await PrefsService.setDarkMode(v);
-              ZapSoundApp.of(context)?.setDark(v);
-            },
+      if (_isPremium) ...[
+        const ZapSectionLabel('Unplug alarm'),
+        ZapGroup(children: [
+          ZapItem(
+            icon: Icons.pin_outlined,
+            title: 'Change PIN',
+            subtitle: 'The 4-digit code that stops the siren',
+            chevron: true,
+            onTap: _changePin,
           ),
-        ], delay: 2),
+        ]),
+      ],
 
-        const SizedBox(height: ZapTheme.space4),
+      const ZapSectionLabel('Appearance'),
+      ZapGroup(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(ZapTheme.space5, 16, ZapTheme.space4, 16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Theme', style: TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w600, color: z.ink)),
+            const SizedBox(height: ZapTheme.space3),
+            ZapSegmented(
+              options: const ['System', 'Light', 'Dark'],
+              index: _themeModes.indexOf(_themeMode).clamp(0, 2),
+              onChanged: _setTheme,
+            ),
+          ]),
+        ),
+      ]),
 
-        _Section('Background & Reliability', [
-          _Tile(Icons.battery_charging_full_rounded, 'Allow background activity',
-              'Required so charger sounds play when ZapSound is closed', () async {
+      const ZapSectionLabel('Background'),
+      ZapGroup(children: [
+        ZapItem(
+          icon: Icons.battery_saver_outlined,
+          title: 'Allow background activity',
+          subtitle: 'Needed for sounds to play while the app is closed',
+          chevron: true,
+          onTap: () async {
             const channel = MethodChannel('com.zapsound.app/charger');
             await channel.invokeMethod('requestBatteryOptimizationExemption');
-          }),
-          _Tile(Icons.smartphone_rounded, 'Some phones need extra setup',
-              'Tap for Xiaomi / Oppo / Vivo / Samsung instructions', () {
-            showDialog(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('Extra setup for some phones'),
-                content: const Text(
-                  'On Xiaomi (MIUI), Oppo (ColorOS), Vivo (FuntouchOS) and some '
-                  'Samsung phones, Android\'s standard battery settings are not '
-                  'enough. Also open:\n\n'
-                  '• Settings → Apps → ZapSound → Battery → "No restrictions" / '
-                  '"Allow background activity"\n'
-                  '• Settings → Apps → Autostart (or "Auto-launch") → enable ZapSound\n\n'
-                  'Without this, the OS may stop ZapSound from detecting the '
-                  'charger while the app is closed.',
-                ),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Got it')),
-                ],
-              ),
-            );
-          }),
-        ], delay: 3),
-
-        const SizedBox(height: ZapTheme.space4),
-
-        if (!_isPremium) ...[
-          _Section('Purchase', [
-            _Tile(Icons.restore_rounded, 'Restore purchase', 'Already bought Pro? Get it back here', () async {
-              final ok = await PurchaseService.restoreAndCheck();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Pro restored!' : 'No purchase found.')));
-                _load();
-              }
-            }),
-          ], delay: 4),
-          const SizedBox(height: ZapTheme.space4),
-        ],
-
-        _Section('About', [
-          _Tile(Icons.info_outline_rounded, 'Version', 'ZapSound $_version', null),
-          const _Tile(Icons.star_outline_rounded, 'Rate ZapSound', 'Enjoying it? Leave a review', _rateApp),
-          _Tile(Icons.share_outlined, 'Share with friends', 'Tell someone about ZapSound', () {
-            Share.share(
-              'Check out ZapSound — it plays a fun sound when you plug in or unplug your charger! $_playStoreUrl',
-            );
-          }),
-          _Tile(Icons.policy_outlined, 'Privacy policy', 'How we handle your data',
-              () => _openUrl(Uri.parse(_privacyPolicyUrl))),
-        ], delay: 5),
+          },
+        ),
+        ZapItem(
+          icon: Icons.help_outline_rounded,
+          title: 'Sounds not playing?',
+          subtitle: 'Extra steps for Xiaomi, Oppo, Vivo and Samsung',
+          chevron: true,
+          onTap: _showOemHelp,
+        ),
       ]),
-    );
-  }
-}
 
-class _PremiumBadge extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(ZapTheme.space4),
-      decoration: BoxDecoration(
-        gradient: ZapGradients.premium,
-        borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
-      ),
-      child: const Row(children: [
-        Icon(Icons.bolt_rounded, color: Colors.white, size: 24),
-        SizedBox(width: 12),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('ZapSound Pro Active', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: ZapTheme.textMd)),
-          Text('Lifetime access unlocked', style: TextStyle(color: Colors.white70, fontSize: ZapTheme.textXs)),
+      if (!_isPremium) ...[
+        const ZapSectionLabel('Purchase'),
+        ZapGroup(children: [
+          ZapItem(
+            icon: Icons.bolt_rounded,
+            title: 'Get ZapSound Pro',
+            subtitle: 'Every sound, your recordings and the unplug alarm',
+            chevron: true,
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
+              _load();
+            },
+          ),
+          ZapItem(
+            icon: Icons.restore_rounded,
+            title: 'Restore purchase',
+            subtitle: 'Already bought Pro on this Google account',
+            trailing: _restoring
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : null,
+            onTap: _restoring ? null : _restore,
+          ),
         ]),
-        Spacer(),
-        Icon(Icons.verified_rounded, color: ZapColors.goldLight, size: 24),
+      ],
+
+      const ZapSectionLabel('About'),
+      ZapGroup(children: [
+        const ZapItem(icon: Icons.star_outline_rounded, title: 'Rate ZapSound', chevron: true, onTap: _rateApp),
+        ZapItem(
+          icon: Icons.share_outlined,
+          title: 'Share with a friend',
+          chevron: true,
+          onTap: () => Share.share('ZapSound plays a sound when you plug in or unplug your charger. $_playStoreUrl'),
+        ),
+        ZapItem(
+          icon: Icons.privacy_tip_outlined,
+          title: 'Privacy policy',
+          chevron: true,
+          onTap: () => _openUrl(Uri.parse(_privacyPolicyUrl)),
+        ),
+      ]),
+      const SizedBox(height: ZapTheme.space6),
+      Center(
+        child: Text(_version.isEmpty ? 'ZapSound' : 'ZapSound $_version',
+            style: TextStyle(fontSize: ZapTheme.textXs, color: z.inkMuted)),
+      ),
+    ];
+
+    return Scaffold(
+      body: CustomScrollView(slivers: [
+        const SliverAppBar.large(title: Text('Settings')),
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(ZapTheme.space4, 0, ZapTheme.space4, ZapTheme.space8 + bottomInset),
+          sliver: SliverList.list(children: sections),
+        ),
       ]),
     );
   }
 }
 
-class _Section extends StatelessWidget {
-  final String title;
-  final List<Widget> children;
-  final int delay;
-  const _Section(this.title, this.children, {this.delay = 0});
+class _TimeBox extends StatelessWidget {
+  final String label, value;
+  final VoidCallback onTap;
+  const _TimeBox({required this.label, required this.value, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Padding(
-        padding: const EdgeInsets.only(left: 4, bottom: 8),
-        child: Text(title.toUpperCase(),
-          style: const TextStyle(fontSize: ZapTheme.textXs, fontWeight: FontWeight.w700, color: ZapColors.textSecondary, letterSpacing: 1.2)),
-      ),
-      GlassCard(
-        child: Column(children: children),
-      ),
-    ]).animate(delay: Duration(milliseconds: 60 * delay))
-        .fadeIn(duration: 300.ms)
-        .slideY(begin: 0.08, duration: 300.ms, curve: Curves.easeOut);
-  }
-}
-
-class _IconCircle extends StatelessWidget {
-  final IconData icon;
-  const _IconCircle(this.icon);
-
-  @override
-  Widget build(BuildContext context) {
-    const color = ZapColors.primary;
-    return Container(
-      width: 38, height: 38,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-      ),
-      child: Icon(icon, size: 18, color: color),
-    );
-  }
-}
-
-class _Tile extends StatelessWidget {
-  final IconData icon;
-  final String title, subtitle;
-  final VoidCallback? onTap;
-  const _Tile(this.icon, this.title, this.subtitle, this.onTap);
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-        leading: _IconCircle(icon),
-        title: Text(title, style: const TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w600)),
-        subtitle: Text(subtitle, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
-        trailing: onTap == null
-            ? null
-            : const Icon(Icons.chevron_right_rounded, size: 18, color: ZapColors.textSecondary),
+    final z = context.zap;
+    return Material(
+      color: z.surfaceHigh,
+      borderRadius: BorderRadius.circular(ZapTheme.radiusSm),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(ZapTheme.radiusSm),
         onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: TextStyle(fontSize: ZapTheme.textXs, color: z.inkMuted)),
+            const SizedBox(height: 2),
+            Text(value,
+                style: zapDisplay(19, weight: FontWeight.w600, color: z.ink).copyWith(fontFeatures: ZapTheme.tabular)),
+          ]),
+        ),
+      ),
     );
   }
 }

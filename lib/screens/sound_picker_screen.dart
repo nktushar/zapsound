@@ -1,13 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter/services.dart';
 import '../models/sound_model.dart';
 import '../services/preferences_service.dart';
 import '../services/audio_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/sound_widgets.dart';
 import 'premium_screen.dart';
 import 'record_sound_screen.dart';
 
+/// Sound library as a grid of sampler pads. Tapping a pad plays it and, if
+/// it's available, makes it the sound for this moment straight away (like a
+/// ringtone picker) — there's no separate save step. Pro sounds can still be
+/// previewed; tapping one shows an unlock bar.
 class SoundPickerScreen extends StatefulWidget {
   final SoundTarget target;
   final String currentId;
@@ -20,20 +25,31 @@ class SoundPickerScreen extends StatefulWidget {
 
 class _SoundPickerScreenState extends State<SoundPickerScreen> {
   late String _selectedId;
+  late bool _isPremium;
   String _category = 'All';
   String? _playingId;
   bool _customRecorded = false;
+  SoundModel? _lockedPick; // last Pro sound previewed by a free user
 
   // Custom recordings only exist for the two charger events; the battery-full
   // alert picks from the built-in library.
   bool get _isPlugIn => widget.target == SoundTarget.plugIn;
   bool get _supportsCustom => widget.target != SoundTarget.batteryFull;
 
+  static final _custom = ZapSoundLibrary.all.firstWhere((s) => s.id == 'custom');
+
   @override
   void initState() {
     super.initState();
     _selectedId = widget.currentId;
+    _isPremium = widget.isPremium;
     _loadCustomRecorded();
+  }
+
+  @override
+  void dispose() {
+    if (_playingId != null) AudioService.stop();
+    super.dispose();
   }
 
   Future<void> _loadCustomRecorded() async {
@@ -42,21 +58,30 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
     if (mounted) setState(() => _customRecorded = path != null);
   }
 
-  List<SoundModel> get _filtered {
-    final base = _category == 'All'
-        ? ZapSoundLibrary.all
-        : ZapSoundLibrary.all.where((s) => s.category == _category).toList();
-    final sorted = base.where((s) => _supportsCustom || s.id != 'custom').toList();
-    sorted.sort((a, b) => a.id == 'custom' ? -1 : (b.id == 'custom' ? 1 : 0));
-    return sorted;
+  List<String> get _categories => ZapSoundLibrary.categories.where((c) => c != 'Custom').toList();
+
+  /// Library sounds (no custom) for the active filter, grouped by category,
+  /// free sounds first inside each group.
+  Map<String, List<SoundModel>> get _groups {
+    final out = <String, List<SoundModel>>{};
+    for (final s in ZapSoundLibrary.all) {
+      if (s.id == 'custom') continue;
+      if (_category != 'All' && s.category != _category) continue;
+      out.putIfAbsent(s.category, () => []).add(s);
+    }
+    for (final list in out.values) {
+      list.sort((a, b) => (a.isPremium ? 1 : 0) - (b.isPremium ? 1 : 0));
+    }
+    return out;
   }
 
-  Future<void> _preview(SoundModel s) async {
-    if (_playingId == s.id) {
-      // Stopping resolves the awaiting play() below, which clears the state.
-      await AudioService.stop();
-      return;
-    }
+  String get _title => switch (widget.target) {
+        SoundTarget.plugIn => 'When plugged in',
+        SoundTarget.plugOut => 'When unplugged',
+        SoundTarget.batteryFull => 'Battery full',
+      };
+
+  Future<void> _play(SoundModel s) async {
     if (s.id == 'custom') {
       final path = _isPlugIn ? await PrefsService.getCustomIn() : await PrefsService.getCustomOut();
       if (path == null) return;
@@ -67,25 +92,11 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
       setState(() => _playingId = s.id);
       await AudioService.playAsset(s.assetPath);
     }
+    // A newer preview may have started meanwhile; only clear our own.
     if (mounted && _playingId == s.id) setState(() => _playingId = null);
   }
 
-  Future<void> _select(SoundModel s) async {
-    if (s.isPremium && !widget.isPremium) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
-      return;
-    }
-    if (s.id == 'custom') {
-      if (!_customRecorded) {
-        final saved = await Navigator.push<bool>(
-          context,
-          MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: _isPlugIn)),
-        );
-        if (saved == true && mounted) Navigator.pop(context);
-        return;
-      }
-      // Already recorded: behave like any other row — select and close.
-    }
+  Future<void> _save(SoundModel s) async {
     setState(() => _selectedId = s.id);
     switch (widget.target) {
       case SoundTarget.plugIn:
@@ -100,26 +111,67 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
         await PrefsService.setBatteryFullSound(s.id, s.fileName);
         break;
     }
-    if (mounted) Navigator.pop(context);
   }
 
-  Future<void> _reRecord() async {
+  Future<void> _onPad(SoundModel s) async {
+    if (_playingId == s.id) {
+      // Stopping resolves the awaiting play(), which clears the state.
+      await AudioService.stop();
+      return;
+    }
+    HapticFeedback.selectionClick();
+    final locked = s.isPremium && !_isPremium;
+    setState(() => _lockedPick = locked ? s : null);
+    if (!locked) await _save(s);
+    await _play(s);
+  }
+
+  Future<void> _onCustom() async {
+    if (!_isPremium) return _openPremium();
+    if (!_customRecorded) return _record();
+    await _onPad(_custom);
+  }
+
+  Future<void> _openPremium() async {
+    if (_playingId != null) await AudioService.stop();
+    if (!mounted) return;
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
+    final prem = await PrefsService.isPremium();
+    if (mounted) {
+      setState(() {
+        _isPremium = prem;
+        if (prem) _lockedPick = null;
+      });
+    }
+  }
+
+  Future<void> _record() async {
+    if (_playingId != null) await AudioService.stop();
+    if (!mounted) return;
     final saved = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => RecordSoundScreen(isPlugIn: _isPlugIn)),
     );
-    if (saved == true) await _loadCustomRecorded();
+    if (saved == true) {
+      // RecordSoundScreen already persisted it as this moment's sound.
+      await _loadCustomRecorded();
+      if (mounted) setState(() => _selectedId = 'custom');
+    }
   }
 
   Future<void> _removeRecording() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove recording?'),
-        content: const Text('Your custom recording will be deleted. You can record a new one anytime.'),
+        title: const Text('Delete your recording?'),
+        content: const Text('The recording is removed from this phone. You can record a new one anytime.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: Colors.red))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: context.zap.danger),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -152,250 +204,242 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final z = context.zap;
+    final hue = hueForTarget(z, widget.target);
+    final groups = _groups;
+    final showCustom = _supportsCustom && _category == 'All';
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-            switch (widget.target) {
-              SoundTarget.plugIn => 'Plug-in Sound',
-              SoundTarget.plugOut => 'Unplug Sound',
-              SoundTarget.batteryFull => 'Battery Full Sound',
-            },
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
-      ),
-      body: Column(children: [
-        // Category chips
-        SizedBox(
-          height: 52,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space4, vertical: 8),
-            children: ZapSoundLibrary.categories.map((cat) {
-              final sel = cat == _category;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: GestureDetector(
+      body: CustomScrollView(slivers: [
+        SliverAppBar.large(title: Text(_title)),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(ZapTheme.space4, 0, ZapTheme.space4, ZapTheme.space2),
+            child: Text(
+              'Tap a sound to hear it. It\'s used right away.',
+              style: TextStyle(fontSize: ZapTheme.textSm, color: z.inkMuted),
+            ),
+          ),
+        ),
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _PinnedHeader(
+            height: 60,
+            color: z.bg,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space4, vertical: 10),
+              itemCount: _categories.length,
+              separatorBuilder: (_, __) => const SizedBox(width: ZapTheme.space2),
+              itemBuilder: (_, i) {
+                final cat = _categories[i];
+                return _FilterChip(
+                  label: cat,
+                  selected: cat == _category,
                   onTap: () => setState(() => _category = cat),
-                  child: AnimatedScale(
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeOutBack,
-                    scale: sel ? 1.0 : 0.94,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(
-                        gradient: sel
-                            ? ZapGradients.brand
-                            : null,
-                        color: sel ? null : (isDark ? ZapColors.surfaceDark : Colors.white),
-                        borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
-                        border: Border.all(color: sel ? ZapColors.primary : ZapColors.primary.withValues(alpha: 0.2)),
-                        boxShadow: sel
-                            ? [BoxShadow(color: ZapColors.primary.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 3))]
-                            : null,
-                      ),
-                      child: Text(cat,
-                        style: TextStyle(
-                          fontSize: ZapTheme.textSm,
-                          fontWeight: FontWeight.w600,
-                          color: sel ? Colors.white : ZapColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
+                );
+              },
+            ),
           ),
         ),
-
-        Expanded(
-          child: ListView.builder(
+        if (showCustom) ...[
+          const SliverPadding(
+            padding: EdgeInsets.symmetric(horizontal: ZapTheme.space4),
+            sliver: SliverToBoxAdapter(child: ZapSectionLabel('Your recording')),
+          ),
+          SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space4),
-            itemCount: _filtered.length,
-            itemBuilder: (_, i) {
-              final s = _filtered[i];
-              final selected = s.id == _selectedId;
-              final locked   = s.isPremium && !widget.isPremium;
-              final playing  = _playingId == s.id;
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: GestureDetector(
-                  onTap: () => _select(s),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.all(ZapTheme.space3),
-                    decoration: BoxDecoration(
-                      gradient: selected
-                          ? LinearGradient(
-                              colors: [ZapColors.primary.withValues(alpha: 0.18), ZapColors.primary.withValues(alpha: 0.08)],
-                              begin: Alignment.topLeft, end: Alignment.bottomRight,
-                            )
-                          : null,
-                      color: selected ? null : (isDark ? ZapColors.surfaceDark : Colors.white),
-                      borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-                      border: Border.all(
-                        color: selected ? ZapColors.primary : ZapColors.primary.withValues(alpha: 0.1),
-                        width: selected ? 1.5 : 0.5,
-                      ),
-                    ),
-                    child: Row(children: [
-                      // Emoji in circle
-                      Container(
-                        width: 46, height: 46,
-                        decoration: BoxDecoration(
-                          color: locked
-                              ? (isDark ? ZapColors.surfaceDark2 : Colors.grey.shade100)
-                              : ZapColors.primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-                        ),
-                        child: Center(
-                          child: Opacity(
-                            opacity: (s.id == 'custom' && !locked && !_customRecorded) ? 0.35 : 1.0,
-                            child: Text(s.emoji, style: const TextStyle(fontSize: 22)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: ZapTheme.space3),
-
-                      // Name + category
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [
-                          Flexible(
-                            child: Text(
-                              s.name,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: ZapTheme.textMd),
-                            ),
-                          ),
-                          if (s.isPremium) ...[
-                            const SizedBox(width: 5),
-                            const Icon(Icons.bolt_rounded, size: 13, color: ZapColors.gold),
-                          ],
-                          if (s.id == 'custom' && !locked && _customRecorded) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: ZapColors.success.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
-                              ),
-                              child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                                Icon(Icons.check_circle_rounded, size: 11, color: ZapColors.success),
-                                SizedBox(width: 3),
-                                Text('Recorded', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: ZapColors.success)),
-                              ]),
-                            ),
-                          ],
-                        ]),
-                        Text(
-                          s.id == 'custom' && !locked && !_customRecorded ? 'Tap to record' : s.category,
-                          style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary),
-                        ),
-                      ])),
-
-                      // Action button
-                      Row(mainAxisSize: MainAxisSize.min, children: [
-                        if (s.assetPath.isNotEmpty)
-                          GestureDetector(
-                            onTap: () => _preview(s),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              width: 38, height: 38,
-                              decoration: BoxDecoration(
-                                color: playing ? ZapColors.primary : ZapColors.primary.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-                              ),
-                              child: Icon(
-                                playing ? Icons.stop_rounded : Icons.play_arrow_rounded,
-                                color: playing ? Colors.white : ZapColors.primary,
-                                size: 20,
-                              ),
-                            ),
-                          )
-                        else if (s.id == 'custom' && !locked && _customRecorded)
-                          Row(mainAxisSize: MainAxisSize.min, children: [
-                            GestureDetector(
-                              onTap: () => _preview(s),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                width: 38, height: 38,
-                                decoration: BoxDecoration(
-                                  color: playing ? ZapColors.primary : ZapColors.primary.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-                                ),
-                                child: Icon(
-                                  playing ? Icons.stop_rounded : Icons.play_arrow_rounded,
-                                  color: playing ? Colors.white : ZapColors.primary,
-                                  size: 20,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            GestureDetector(
-                              onTap: _reRecord,
-                              child: Container(
-                                width: 32, height: 32,
-                                decoration: BoxDecoration(
-                                  color: ZapColors.gold.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-                                ),
-                                child: const Icon(Icons.fiber_manual_record, color: ZapColors.gold, size: 16),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            GestureDetector(
-                              onTap: _removeRecording,
-                              child: Container(
-                                width: 32, height: 32,
-                                decoration: BoxDecoration(
-                                  color: Colors.red.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-                                ),
-                                child: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 16),
-                              ),
-                            ),
-                          ])
-                        else if (s.id == 'custom' && !locked)
-                          Container(
-                            width: 38, height: 38,
-                            decoration: BoxDecoration(
-                              color: (isDark ? ZapColors.surfaceDark2 : Colors.grey.shade100),
-                              borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-                            ),
-                            child: Icon(Icons.mic_rounded, color: ZapColors.primary.withValues(alpha: 0.4), size: 20),
-                          ),
-
-                        if (locked) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: ZapColors.gold.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-                            ),
-                            child: const Icon(Icons.lock_rounded, size: 16, color: ZapColors.gold),
-                          ),
-                        ] else ...[
-                          const SizedBox(width: 10),
-                          AnimatedOpacity(
-                            duration: const Duration(milliseconds: 200),
-                            opacity: selected ? 1.0 : 0.0,
-                            child: const Icon(Icons.check_circle_rounded, color: ZapColors.primary, size: 22),
-                          ),
-                        ],
-                      ]),
-                    ]),
-                  ),
-                ),
-              ).animate(delay: Duration(milliseconds: i * 40))
-                  .fadeIn(duration: 250.ms)
-                  .slideY(begin: 0.08, duration: 250.ms, curve: Curves.easeOut);
-            },
+            sliver: SliverToBoxAdapter(child: _buildCustomPad(hue)),
           ),
-        ),
+        ],
+        for (final entry in groups.entries) ...[
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space4),
+            sliver: SliverToBoxAdapter(child: ZapSectionLabel(entry.key)),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space4),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                mainAxisExtent: 96,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (_, i) {
+                  final s = entry.value[i];
+                  return SoundPad(
+                    name: s.name,
+                    icon: categoryIcon(s.category),
+                    hue: hue,
+                    selected: s.id == _selectedId,
+                    playing: s.id == _playingId,
+                    locked: s.isPremium && !_isPremium,
+                    onTap: () => _onPad(s),
+                  );
+                },
+                childCount: entry.value.length,
+              ),
+            ),
+          ),
+        ],
+        SliverToBoxAdapter(child: SizedBox(height: ZapTheme.space8 + bottomInset)),
       ]),
+      bottomNavigationBar: AnimatedSwitcher(
+        duration: ZapTheme.medium,
+        switchInCurve: ZapTheme.emphasized,
+        transitionBuilder: (c, a) => SizeTransition(
+          sizeFactor: a,
+          alignment: Alignment.topCenter,
+          child: FadeTransition(opacity: a, child: c),
+        ),
+        child: _lockedPick == null ? const SizedBox.shrink() : _buildUnlockBar(z, _lockedPick!),
+      ),
+    );
+  }
+
+  Widget _buildUnlockBar(ZapTokens z, SoundModel s) {
+    return SafeArea(
+      key: ValueKey(s.id),
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(ZapTheme.space3, 0, ZapTheme.space3, ZapTheme.space3),
+        padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
+        decoration: BoxDecoration(color: z.ink, borderRadius: BorderRadius.circular(ZapTheme.radiusGroup)),
+        child: Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text('${s.name} is a Pro sound',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w700, color: z.onInk)),
+              Text('Unlock every sound with one purchase',
+                  style: TextStyle(fontSize: ZapTheme.textXs, color: z.onInk.withValues(alpha: 0.7))),
+            ]),
+          ),
+          const SizedBox(width: ZapTheme.space2),
+          FilledButton(
+            onPressed: _openPremium,
+            style: FilledButton.styleFrom(backgroundColor: z.onInk, foregroundColor: z.ink),
+            child: const Text('Unlock'),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildCustomPad(ZapHue hue) {
+    final z = context.zap;
+    final selected = _selectedId == 'custom';
+    final playing = _playingId == 'custom';
+    final ready = _isPremium && _customRecorded;
+    final fg = selected ? hue.onContainer : z.ink;
+
+    return Pressable(
+      onTap: _onCustom,
+      child: AnimatedContainer(
+        duration: ZapTheme.medium,
+        curve: ZapTheme.emphasized,
+        height: 76,
+        padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
+        decoration: BoxDecoration(
+          color: selected ? hue.container : z.surface,
+          borderRadius: BorderRadius.circular(ZapTheme.radiusPad),
+        ),
+        child: Row(children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(color: selected ? hue.onContainer : hue.container, shape: BoxShape.circle),
+            child: Center(
+              child: playing
+                  ? EqualizerBars(color: selected ? hue.container : hue.onContainer, size: 16)
+                  : Icon(Icons.mic_rounded, size: 20, color: selected ? hue.container : hue.onContainer),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(ready ? 'My recording' : 'Record your own',
+                  style: zapDisplay(17, weight: FontWeight.w600, color: fg)),
+              Text(
+                ready ? 'Saved on this phone' : 'Your voice or any sound around you',
+                style: TextStyle(fontSize: ZapTheme.textXs, color: selected ? fg.withValues(alpha: 0.7) : z.inkMuted),
+              ),
+            ]),
+          ),
+          if (!_isPremium)
+            const Padding(padding: EdgeInsets.only(right: 8), child: ProTag())
+          else if (!ready)
+            Icon(Icons.chevron_right_rounded, color: z.inkMuted)
+          else
+            PopupMenuButton<String>(
+              tooltip: 'Recording options',
+              icon: Icon(Icons.more_vert_rounded, color: fg),
+              onSelected: (v) => v == 'redo' ? _record() : _removeRecording(),
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'redo', child: Text('Record again')),
+                PopupMenuItem(value: 'delete', child: Text('Delete', style: TextStyle(color: z.danger))),
+              ],
+            ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _PinnedHeader extends SliverPersistentHeaderDelegate {
+  final double height;
+  final Color color;
+  final Widget child;
+  _PinnedHeader({required this.height, required this.color, required this.child});
+
+  @override
+  double get minExtent => height;
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) =>
+      ColoredBox(color: color, child: child);
+
+  @override
+  bool shouldRebuild(_PinnedHeader old) => true;
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _FilterChip({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final z = context.zap;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: ZapTheme.fast,
+          curve: ZapTheme.emphasized,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? z.ink : z.surface,
+            borderRadius: BorderRadius.circular(100),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                fontSize: ZapTheme.textSm,
+                fontWeight: FontWeight.w700,
+                color: selected ? z.onInk : z.ink,
+              )),
+        ),
+      ),
     );
   }
 }

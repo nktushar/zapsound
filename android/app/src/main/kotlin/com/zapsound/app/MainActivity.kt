@@ -184,14 +184,15 @@ class MainActivity : FlutterActivity() {
             return
         }
 
-        AlertDialog.Builder(this)
-            .setTitle("Keep ZapSound alive ⚡")
+        // DeviceDefault so the dialog matches the system's Material styling
+        // instead of the legacy Holo look of the activity's base theme.
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Let ZapSound run in the background")
             .setMessage(
-                "ZapSound needs to run in the background to play sounds when your " +
-                "phone is locked or the screen is off.\n\n" +
-                "Tap OK to disable battery optimization for ZapSound."
+                "Android pauses apps to save battery. Allow ZapSound to keep " +
+                "running so sounds play when your phone is locked or the app is closed."
             )
-            .setPositiveButton("OK") { _, _ ->
+            .setPositiveButton("Allow") { _, _ ->
                 requestBatteryOptimizationExemption()
                 requestRecordAudioPermission()
             }

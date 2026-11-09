@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter/services.dart';
+import '../models/sound_model.dart';
+import '../services/audio_service.dart';
 import '../services/purchase_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/sound_widgets.dart';
+
 class PremiumScreen extends StatefulWidget {
   const PremiumScreen({super.key});
   @override
@@ -12,7 +16,11 @@ class PremiumScreen extends StatefulWidget {
 class _PremiumScreenState extends State<PremiumScreen> {
   bool _loading = false, _restoring = false;
   String _price = '\$2.99';
+  String? _playingId;
   StreamSubscription<PurchaseEvent>? _purchaseSub;
+
+  // A taste of the Pro library, mixed across categories.
+  static const _sampleIds = ['p7', 'p3', 'p2', 'p25', 'p16', 'p20', 'p1', 'p11', 'p23', 'p19', 'p15', 'p5'];
 
   @override
   void initState() {
@@ -24,6 +32,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
   @override
   void dispose() {
     _purchaseSub?.cancel();
+    if (_playingId != null) AudioService.stop();
     super.dispose();
   }
 
@@ -32,8 +41,18 @@ class _PremiumScreenState extends State<PremiumScreen> {
     if (p != null && mounted) setState(() => _price = p.price);
   }
 
-  void _toast(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  void _toast(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  Future<void> _preview(SoundModel s) async {
+    if (_playingId == s.id) {
+      await AudioService.stop();
+      return;
+    }
+    HapticFeedback.selectionClick();
+    setState(() => _playingId = s.id);
+    await AudioService.playAsset(s.assetPath);
+    if (mounted && _playingId == s.id) setState(() => _playingId = null);
+  }
 
   // Only react while a buy is in flight; restore has its own feedback.
   void _onPurchaseEvent(PurchaseEvent e) {
@@ -41,14 +60,14 @@ class _PremiumScreenState extends State<PremiumScreen> {
     setState(() => _loading = false);
     switch (e.outcome) {
       case PurchaseOutcome.purchased:
-        _toast('Welcome to ZapSound Pro! ⚡');
+        _toast('Pro unlocked. Enjoy every sound.');
         Navigator.pop(context, true);
       case PurchaseOutcome.pending:
-        _toast('Payment pending — Pro unlocks automatically once it completes.');
+        _toast('Payment pending. Pro unlocks automatically when it completes.');
       case PurchaseOutcome.canceled:
         break;
       case PurchaseOutcome.error:
-        _toast('Purchase failed${e.message != null ? ': ${e.message}' : ''}. Try again.');
+        _toast('Purchase didn\'t go through${e.message != null ? ' (${e.message})' : ''}. Try again.');
     }
   }
 
@@ -66,14 +85,14 @@ class _PremiumScreenState extends State<PremiumScreen> {
         return; // outcome arrives via _onPurchaseEvent
       case BuyStart.alreadyOwned:
         setState(() => _loading = false);
-        _toast('You already own Pro — restored!');
+        _toast('You already own Pro. It\'s been restored.');
         Navigator.pop(context, true);
       case BuyStart.storeUnavailable:
         setState(() => _loading = false);
-        _toast('Google Play is unavailable. Check your connection and try again.');
+        _toast('Google Play isn\'t reachable. Check your connection and try again.');
       case BuyStart.failed:
         setState(() => _loading = false);
-        _toast('Couldn\'t start the purchase. Try again.');
+        _toast('Couldn\'t open Google Play. Try again.');
     }
   }
 
@@ -82,155 +101,155 @@ class _PremiumScreenState extends State<PremiumScreen> {
     final ok = await PurchaseService.restoreAndCheck();
     if (mounted) {
       setState(() => _restoring = false);
-      _toast(ok ? 'Premium restored!' : 'No purchase found.');
+      _toast(ok ? 'Purchase restored. Pro is unlocked.' : 'No purchase found for this Google account.');
       if (ok) Navigator.pop(context, true);
     }
   }
 
-static const _features = [
-    (Icons.shield_rounded, 'Anti-theft alarm', 'Loud siren + PIN lock if someone unplugs your phone'),
-    (Icons.bolt_rounded, '25+ premium sounds', 'Funny, retro, sci-fi & chill packs'),
-    (Icons.mic_rounded, 'Record your own sounds', 'Your voice, any sound you like'),
-    (Icons.card_giftcard_rounded, 'All future sound packs free', 'Every new release included'),
-    (Icons.all_inclusive_rounded, 'Lifetime access', 'Pay once, yours forever — no subscription'),
-  ];
-@override
+  @override
   Widget build(BuildContext context) {
+    final z = context.zap;
+    final total = ZapSoundLibrary.all.where((s) => s.id != 'custom').length;
+    final samples = [
+      for (final id in _sampleIds) ZapSoundLibrary.all.firstWhere((s) => s.id == id),
+    ];
+
     return Scaffold(
-      body: Stack(children: [
-        const AuraBackground(),
-        SafeArea(
-        child: SingleChildScrollView(
-          child: Column(children: [
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(ZapTheme.space5),
-              padding: const EdgeInsets.symmetric(vertical: 32, horizontal: ZapTheme.space6),
-              decoration: BoxDecoration(
-                gradient: ZapGradients.premium,
-                borderRadius: BorderRadius.circular(ZapTheme.radiusXl),
-                boxShadow: [
-                  BoxShadow(color: ZapColors.primary.withValues(alpha: 0.3), blurRadius: 30, offset: const Offset(0, 10)),
-                ],
-              ),
-              child: Column(children: [
-                const Icon(Icons.bolt_rounded, color: Colors.white, size: 52)
-                    .animate().scale(duration: 600.ms, curve: Curves.elasticOut),
-                const SizedBox(height: 12),
-                const Text('ZapSound Pro',
-                    style: TextStyle(color: Colors.white, fontSize: ZapTheme.text2xl, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(ZapTheme.radiusFull),
-                  ),
-                  child: const Text('Pay once · Yours forever',
-                      style: TextStyle(color: Colors.white70, fontSize: ZapTheme.textSm)),
-                ),
-              ]),
-            ),
-Padding(
-              padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
-              child: Column(
-                children: _features.asMap().entries.map((e) =>
-                  _FeatureRow(icon: e.value.$1, title: e.value.$2, subtitle: e.value.$3, delay: e.key * 70)
-                ).toList(),
-              ),
-            ),
-
-const SizedBox(height: ZapTheme.space8),
-Padding(
-              padding: const EdgeInsets.symmetric(horizontal: ZapTheme.space5),
-              child: Column(children: [
-                Container(
-                  width: double.infinity, height: 58,
-                  decoration: BoxDecoration(
-                    gradient: ZapGradients.brand,
-                    borderRadius: BorderRadius.circular(ZapTheme.radiusLg),
-                    boxShadow: [
-                      BoxShadow(color: ZapColors.primary.withValues(alpha: 0.35), blurRadius: 18, offset: const Offset(0, 6)),
-                    ],
-                  ),
-                  child: ElevatedButton(
-                    onPressed: _loading ? null : _buy,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ZapTheme.radiusLg)),
-                      elevation: 0,
-                    ),
-                    child: _loading
-                        ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                        : Text('Unlock ZapSound Pro — $_price',
-                            style: const TextStyle(fontSize: ZapTheme.textMd, fontWeight: FontWeight.w800)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: _restoring ? null : _restore,
-                  child: _restoring
-                      ? const CircularProgressIndicator(strokeWidth: 2)
-                      : const Text('Restore purchase',
-                          style: TextStyle(color: ZapColors.textSecondary, fontSize: ZapTheme.textSm)),
-                ),
-                const SizedBox(height: 6),
-                const Text('Secure payment via Google Play',
-                    style: TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
-              ]),
-            ),
-
-            const SizedBox(height: 16),
-            TextButton.icon(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close, size: 16, color: ZapColors.textSecondary),
-              label: const Text('Maybe later',
-                  style: TextStyle(color: ZapColors.textSecondary, fontSize: ZapTheme.textSm)),
-            ),
-            const SizedBox(height: 20),
-          ]),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Close',
+          icon: const Icon(Icons.close_rounded),
+          onPressed: () => Navigator.pop(context),
         ),
       ),
+      body: Column(children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(ZapTheme.space5, 0, ZapTheme.space5, ZapTheme.space6),
+            children: [
+              Text('ZapSound Pro', style: zapDisplay(40, weight: FontWeight.w800, color: z.ink, height: 1.05)),
+              const SizedBox(height: ZapTheme.space2),
+              Text(
+                'Pay once and keep everything. No subscription.',
+                style: TextStyle(fontSize: ZapTheme.textMd, color: z.inkMuted, height: 1.5),
+              ),
+              const SizedBox(height: ZapTheme.space6),
+
+              // Hear before you buy.
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final s in samples)
+                  _SoundChip(
+                    sound: s,
+                    hue: hueForCategory(z, s.category),
+                    playing: _playingId == s.id,
+                    onTap: () => _preview(s),
+                  ),
+              ]),
+              const SizedBox(height: ZapTheme.space2),
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text('Tap any sound to hear it', style: TextStyle(fontSize: ZapTheme.textXs, color: z.inkMuted)),
+              ),
+
+              const ZapSectionLabel('What you get'),
+              ZapGroup(children: [
+                ZapItem(
+                  icon: Icons.library_music_outlined,
+                  hue: z.charge,
+                  title: 'All $total sounds',
+                  subtitle: 'Funny, retro, sci-fi and chill packs',
+                ),
+                ZapItem(
+                  icon: Icons.mic_none_rounded,
+                  hue: z.release,
+                  title: 'Record your own',
+                  subtitle: 'Use your voice for plugging in or unplugging',
+                ),
+                ZapItem(
+                  icon: Icons.shield_outlined,
+                  hue: z.guard,
+                  title: 'Unplug alarm',
+                  subtitle: 'A loud siren and PIN lock if someone takes your phone off the charger',
+                ),
+                ZapItem(
+                  icon: Icons.auto_awesome_outlined,
+                  hue: z.full,
+                  title: 'Future sound packs',
+                  subtitle: 'New sounds are included at no extra cost',
+                ),
+              ]),
+            ],
+          ),
+        ),
+
+        // Sticky purchase bar
+        Container(
+          color: z.bg,
+          padding: const EdgeInsets.fromLTRB(ZapTheme.space5, ZapTheme.space3, ZapTheme.space5, ZapTheme.space1),
+          child: SafeArea(
+            top: false,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ZapPrimaryButton(label: 'Unlock Pro for $_price', loading: _loading, onPressed: _buy),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Text('One-time purchase through Google Play.',
+                    style: TextStyle(fontSize: ZapTheme.textXs, color: z.inkMuted)),
+                TextButton(
+                  onPressed: _restoring ? null : _restore,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(fontSize: ZapTheme.textXs, fontWeight: FontWeight.w800),
+                  ),
+                  child: Text(_restoring ? 'Restoring…' : 'Restore'),
+                ),
+              ]),
+            ]),
+          ),
+        ),
       ]),
     );
   }
 }
-class _FeatureRow extends StatelessWidget {
-  final IconData icon;
-  final String title, subtitle;
-  final int delay;
-  const _FeatureRow({required this.icon, required this.title, required this.subtitle, required this.delay});
+
+class _SoundChip extends StatelessWidget {
+  final SoundModel sound;
+  final ZapHue hue;
+  final bool playing;
+  final VoidCallback onTap;
+  const _SoundChip({required this.sound, required this.hue, required this.playing, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: ZapTheme.space3),
-      child: GlassCard(
-        padding: const EdgeInsets.all(ZapTheme.space3),
-        child: Row(children: [
-          Container(
-            width: 46, height: 46,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  ZapColors.primary.withValues(alpha: 0.20),
-                  ZapColors.cyan.withValues(alpha: 0.12),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(ZapTheme.radiusMd),
-            ),
-            child: Center(child: Icon(icon, color: ZapColors.primary, size: 22)),
+    return Semantics(
+      button: true,
+      label: 'Play ${sound.name}',
+      child: Pressable(
+        onTap: onTap,
+        pressedScale: 0.94,
+        child: AnimatedContainer(
+          duration: ZapTheme.fast,
+          padding: const EdgeInsets.fromLTRB(12, 9, 16, 9),
+          decoration: BoxDecoration(
+            color: playing ? hue.onContainer : hue.container,
+            borderRadius: BorderRadius.circular(100),
           ),
-          const SizedBox(width: ZapTheme.space3),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: ZapTheme.textMd)),
-            Text(subtitle, style: const TextStyle(fontSize: ZapTheme.textXs, color: ZapColors.textSecondary)),
-          ])),
-          const Icon(Icons.check_circle_rounded, color: ZapColors.success, size: 20),
-        ]),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: playing
+                  ? EqualizerBars(color: hue.container, size: 14)
+                  : Icon(Icons.play_arrow_rounded, size: 16, color: hue.onContainer),
+            ),
+            const SizedBox(width: 6),
+            Text(sound.name,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: playing ? hue.container : hue.onContainer,
+                )),
+          ]),
+        ),
       ),
-    ).animate().slideX(begin: 0.1, duration: 350.ms, delay: Duration(milliseconds: delay), curve: Curves.easeOut);
+    );
   }
 }
