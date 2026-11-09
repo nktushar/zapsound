@@ -1,8 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Ink, matching the in-app logo square ("Moments" design). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <gradient
-        android:type="linear"
-        android:angle="315"
-        android:startColor="#7C5CFF"
-        android:endColor="#4CC9FF"/>
+    <solid android:color="#131316"/>
 </shape>
