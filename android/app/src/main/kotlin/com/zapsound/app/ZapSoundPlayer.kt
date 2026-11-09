@@ -39,14 +39,29 @@ object ZapSoundPlayer {
         playRes(context, fileName)
     }
 
+    // Players must stay strongly referenced until they finish: a MediaPlayer
+    // held only by a local is garbage-collected mid-sound ("finalized without
+    // being released"), cutting the sound off.
+    private val active = mutableSetOf<MediaPlayer>()
+
+    private fun track(mp: MediaPlayer, context: Context) {
+        val v = volume(context)
+        mp.setVolume(v, v)
+        synchronized(active) { active.add(mp) }
+        val done = { p: MediaPlayer ->
+            synchronized(active) { active.remove(p) }
+            p.release()
+        }
+        mp.setOnCompletionListener { done(it) }
+        mp.setOnErrorListener { p, _, _ -> done(p); true }
+    }
+
     fun playRes(context: Context, resName: String) {
         val resId = context.resources.getIdentifier(resName, "raw", context.packageName)
         if (resId == 0) return
         try {
             val mp = MediaPlayer.create(context, resId) ?: return
-            val v = volume(context)
-            mp.setVolume(v, v)
-            mp.setOnCompletionListener { it.release() }
+            track(mp, context)
             mp.start()
         } catch (_: Exception) {}
     }
@@ -55,10 +70,8 @@ object ZapSoundPlayer {
         try {
             val mp = MediaPlayer()
             mp.setDataSource(context, Uri.fromFile(File(path)))
-            val v = volume(context)
-            mp.setVolume(v, v)
-            mp.setOnCompletionListener { it.release() }
-            mp.setOnPreparedListener  { it.start()   }
+            track(mp, context)
+            mp.setOnPreparedListener { it.start() }
             mp.prepareAsync()
         } catch (_: Exception) {}
     }

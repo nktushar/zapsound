@@ -644,7 +644,7 @@ class _ProCard extends StatelessWidget {
           ]),
           const SizedBox(height: 6),
           Text(
-            '25 more sounds, your own recordings and the unplug alarm. One payment, no subscription.',
+            '${ZapSoundLibrary.all.where((s) => s.isPremium && s.id != 'custom').length} more sounds, your own recordings and the unplug alarm. One payment, no subscription.',
             style: TextStyle(fontSize: ZapTheme.textSm, height: 1.45, color: z.onInk.withValues(alpha: 0.7)),
           ),
           const SizedBox(height: ZapTheme.space4),
