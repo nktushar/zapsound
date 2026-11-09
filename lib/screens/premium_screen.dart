@@ -20,7 +20,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
   StreamSubscription<PurchaseEvent>? _purchaseSub;
 
   // A taste of the Pro library, mixed across categories.
-  static const _sampleIds = ['p7', 'p3', 'p2', 'p25', 'p16', 'p20', 'p1', 'p11', 'p23', 'p19', 'p15', 'p5'];
+  static const _sampleIds = ['p26', 'p7', 'p44', 'p3', 'p92', 'p67', 'p2', 'p133', 'p112', 'p16', 'p142', 'p19'];
 
   @override
   void initState() {

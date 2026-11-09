@@ -11,6 +11,17 @@ IconData categoryIcon(String category) => switch (category) {
       'Sci-Fi' => Icons.rocket_launch_outlined,
       'Retro' => Icons.videogame_asset_outlined,
       'Chill' => Icons.spa_outlined,
+      'Memes' => Icons.whatshot_outlined,
+      'Voices' => Icons.record_voice_over_outlined,
+      'Laughs' => Icons.emoji_emotions_outlined,
+      'Farts' => Icons.air_rounded,
+      'Gross' => Icons.sick_outlined,
+      'Screams' => Icons.campaign_outlined,
+      'Animals' => Icons.pets_outlined,
+      'Cartoon' => Icons.auto_awesome_outlined,
+      'Spooky' => Icons.nightlight_outlined,
+      'Action' => Icons.flash_on_outlined,
+      'Music' => Icons.piano_outlined,
       'Custom' => Icons.mic_none_rounded,
       _ => Icons.music_note_rounded,
     };
@@ -24,9 +35,9 @@ ZapHue hueForTarget(ZapTokens z, SoundTarget t) => switch (t) {
 
 /// Decorative hue per category (paywall sound chips).
 ZapHue hueForCategory(ZapTokens z, String category) => switch (category) {
-      'Funny' => z.release,
-      'Sci-Fi' || 'Classic' => z.full,
-      'Retro' || 'Gaming' => z.guard,
+      'Funny' || 'Memes' || 'Farts' || 'Gross' || 'Screams' || 'Action' => z.release,
+      'Sci-Fi' || 'Classic' || 'Voices' || 'Music' => z.full,
+      'Retro' || 'Gaming' || 'Spooky' => z.guard,
       _ => z.charge,
     };
 

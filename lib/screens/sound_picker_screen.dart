@@ -72,7 +72,7 @@ class _SoundPickerScreenState extends State<SoundPickerScreen> {
     for (final list in out.values) {
       list.sort((a, b) => (a.isPremium ? 1 : 0) - (b.isPremium ? 1 : 0));
     }
-    return out;
+    return {for (final c in _categories) if (out.containsKey(c)) c: out[c]!};
   }
 
   String get _title => switch (widget.target) {
