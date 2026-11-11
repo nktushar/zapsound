@@ -69,6 +69,7 @@ class ZapSoundLibrary {
     SoundModel(id: 'p29', name: 'Hankie Pankie', emoji: '🕺', assetPath: 'assets/sounds/meme_hankie_pankie.mp3', isPremium: true, category: 'Memes'),
     SoundModel(id: 'p33', name: 'Yamete Kudasai', emoji: '🙅', assetPath: 'assets/sounds/meme_yamete.mp3', isPremium: true, category: 'Memes'),
     SoundModel(id: 'p34', name: 'Yamete!', emoji: '🙅', assetPath: 'assets/sounds/meme_yamete_short.mp3', isPremium: true, category: 'Memes'),
+    SoundModel(id: 'p145', name: 'Mimimimimi', emoji: '🙄', assetPath: 'assets/sounds/meme_mimimimimi.mp3', isPremium: true, category: 'Memes'),
     SoundModel(id: 'p37', name: 'Mouth Toot', emoji: '👄', assetPath: 'assets/sounds/fart_mouth.mp3', isPremium: true, category: 'Farts'),
     SoundModel(id: 'p38', name: 'Squeaker', emoji: '💨', assetPath: 'assets/sounds/fart_squeaker.mp3', isPremium: true, category: 'Farts'),
     SoundModel(id: 'p39', name: 'Quick Toot', emoji: '💨', assetPath: 'assets/sounds/fart_quick.mp3', isPremium: true, category: 'Farts'),
