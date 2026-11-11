@@ -98,6 +98,7 @@ class PurchaseService {
   /// revokes it after a refund. Leaves the flag alone if Play can't be
   /// reached, so offline users keep premium.
   static Future<void> syncWithStore() async {
+    if (kForcePremium) return; // debug override: don't let Play revoke it
     try {
       if (!await _iap.isAvailable()) return;
       final android = _iap.getPlatformAddition<InAppPurchaseAndroidPlatformAddition>();

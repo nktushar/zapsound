@@ -1,4 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Debug-only premium override for testing Pro features without a purchase:
+/// `flutter run --dart-define=ZAP_FORCE_PREMIUM=true`. Always false in
+/// profile/release builds (kDebugMode), so it can never ship unlocked.
+const bool kForcePremium =
+    kDebugMode && bool.fromEnvironment('ZAP_FORCE_PREMIUM');
 
 class PrefsService {
   static const _plugIn    = 'plug_in_sound';
@@ -29,7 +36,7 @@ class PrefsService {
 
   static Future<String>  getPlugIn()     async => (await _p).getString(_plugIn)  ?? 's1';
   static Future<String>  getPlugOut()    async => (await _p).getString(_plugOut) ?? 's2';
-  static Future<bool>    isPremium()     async => (await _p).getBool(_premium)   ?? false;
+  static Future<bool>    isPremium()     async => kForcePremium || ((await _p).getBool(_premium) ?? false);
   static Future<bool>    isOnboarded()   async => (await _p).getBool(_onboarded) ?? false;
   static Future<String?> getCustomIn()   async => (await _p).getString(_customIn);
   static Future<String?> getCustomOut()  async => (await _p).getString(_customOut);
